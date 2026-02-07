@@ -1,0 +1,705 @@
+﻿@host = http://localhost:20101/api/v1/
+@host_main = https://qai.asia/api/v1/
+### health
+GET {{host}}health
+
+### Get JWT access token by password and user login
+# @name loginReq
+POST {{host_main}}authenticate
+Content-Type: application/json
+
+{
+    "username":"",
+    "password":""
+}
+
+### Get the list of User, using advanced search
+POST {{host}}users/search
+Authorization: Bearer {{loginReq.response.body.token}}
+Content-Type: application/json
+
+{
+    "paging": {
+        "skip": 0,
+        "take": 10,
+        "returnCount": true
+    },
+    "sort": {
+        "id": {
+            "operator": "asc",
+            "ordinal": 0,
+        },
+    },
+}
+
+### Add a User
+POST {{host}}users
+Authorization: Bearer {{loginReq.response.body.token}}
+Content-Type: application/json
+
+{
+    "userName": "abc",
+    "passwordHash": "abc",
+    "phoneNumber": "abc",
+    "failedLoginCount": 1,
+    "isActive": false,
+    "isApproved": false,
+    "identityNumber": "abc",
+    "legalAddress": "abc",
+    "contractLine": "abc",
+    "contractSupervisorInitials": "abc",
+    "name": "abc",
+    "initials": "abc",
+    "positionLine": "abc",
+    "state": 1,
+    "registrationToken": "abc",
+    "deviceAuthToken": "abc",
+    "blockExpiration": "12.03.2021 00:00",
+    "pushToken": "abc",
+    "signalrToken": "abc",
+    "pinCode": "abc",
+    "pinCodeExpiration": "12.03.2021 00:00",
+    "refreshToken": null,
+}
+
+### Edit a User
+PUT {{host}}users
+Authorization: Bearer {{loginReq.response.body.token}}
+Content-Type: application/json
+
+{
+    "id": 1,
+    "userName": "abc",
+    "passwordHash": "abc",
+    "phoneNumber": "abc",
+    "failedLoginCount": 1,
+    "isActive": false,
+    "isApproved": false,
+    "identityNumber": "abc",
+    "legalAddress": "abc",
+    "contractLine": "abc",
+    "contractSupervisorInitials": "abc",
+    "name": "abc",
+    "initials": "abc",
+    "positionLine": "abc",
+    "state": 1,
+    "registrationToken": "abc",
+    "deviceAuthToken": "abc",
+    "blockExpiration": "12.03.2021 00:00",
+    "pushToken": "abc",
+    "signalrToken": "abc",
+    "pinCode": "abc",
+    "pinCodeExpiration": "12.03.2021 00:00",
+    "refreshToken": null,
+}
+
+### Delete a User
+DELETE {{host}}users/1
+Authorization: Bearer {{loginReq.response.body.token}}
+Content-Type: application/json
+
+{
+}
+
+### Get the list of Role, using advanced search
+POST {{host}}roles/search
+Authorization: Bearer {{loginReq.response.body.token}}
+Content-Type: application/json
+
+{
+    "paging": {
+        "skip": 0,
+        "take": 10,
+        "returnCount": true
+    },
+    "sort": {
+        "id": {
+            "operator": "asc",
+            "ordinal": 0,
+        },
+    },
+}
+
+### Add a Role
+POST {{host}}roles
+Authorization: Bearer {{loginReq.response.body.token}}
+Content-Type: application/json
+
+{
+    "name": "abc",
+    "code": "abc",
+}
+
+### Edit a Role
+PUT {{host}}roles
+Authorization: Bearer {{loginReq.response.body.token}}
+Content-Type: application/json
+
+{
+    "id": 1,
+    "name": "abc",
+    "code": "abc",
+}
+
+### Delete a Role
+DELETE {{host}}roles/1
+Authorization: Bearer {{loginReq.response.body.token}}
+Content-Type: application/json
+
+{
+}
+
+### Get the list of UserRole, using advanced search
+POST {{host}}userRoles/search
+Authorization: Bearer {{loginReq.response.body.token}}
+Content-Type: application/json
+
+{
+    "paging": {
+        "skip": 0,
+        "take": 10,
+        "returnCount": true
+    },
+    "sort": {
+        "id": {
+            "operator": "asc",
+            "ordinal": 0,
+        },
+    },
+}
+
+### Add a UserRole
+POST {{host}}userRoles
+Authorization: Bearer {{loginReq.response.body.token}}
+Content-Type: application/json
+
+{
+    "userId": 1,
+    "roleId": 1,
+}
+
+### Edit a UserRole
+PUT {{host}}userRoles
+Authorization: Bearer {{loginReq.response.body.token}}
+Content-Type: application/json
+
+{
+    "id": 1,
+    "userId": 1,
+    "roleId": 1,
+}
+
+### Delete a UserRole
+DELETE {{host}}userRoles/1
+Authorization: Bearer {{loginReq.response.body.token}}
+Content-Type: application/json
+
+{
+}
+
+### Get the list of Tenant, using advanced search
+POST {{host}}tenants/search
+Authorization: Bearer {{loginReq.response.body.token}}
+Content-Type: application/json
+
+{
+    "paging": {
+        "skip": 0,
+        "take": 10,
+        "returnCount": true
+    },
+    "sort": {
+        "id": {
+            "operator": "asc",
+            "ordinal": 0,
+        },
+    },
+}
+
+### Add a Tenant
+POST {{host}}tenants
+Authorization: Bearer {{loginReq.response.body.token}}
+Content-Type: application/json
+
+{
+    "name": "abc",
+    "fullName": "abc",
+    "bIN": "abc",
+    "cityLine": "abc",
+    "regionLine": "abc",
+    "addressLine": "abc",
+    "legalAddressLine": "abc",
+    "phoneNumber": "abc",
+    "email": "abc",
+    "bankAccountNumber": "abc",
+    "bankName": "abc",
+    "bankBik": "abc",
+    "beneficiaryCode": "abc",
+    "bankBin": "abc",
+    "supervisorName": "abc",
+    "supervisorPosition": "abc",
+    "supervisorDocumentNumber": "abc",
+    "supervisorIdentityNumber": "abc",
+    "phonesLine": "abc",
+    "referalSource": 1,
+    "contactData": "abc",
+    "balance": 1.0,
+    "legalForm": 1,
+    "logo": null,
+}
+
+### Edit a Tenant
+PUT {{host}}tenants
+Authorization: Bearer {{loginReq.response.body.token}}
+Content-Type: application/json
+
+{
+    "id": 1,
+    "name": "abc",
+    "fullName": "abc",
+    "bIN": "abc",
+    "cityLine": "abc",
+    "regionLine": "abc",
+    "addressLine": "abc",
+    "legalAddressLine": "abc",
+    "phoneNumber": "abc",
+    "email": "abc",
+    "bankAccountNumber": "abc",
+    "bankName": "abc",
+    "bankBik": "abc",
+    "beneficiaryCode": "abc",
+    "bankBin": "abc",
+    "supervisorName": "abc",
+    "supervisorPosition": "abc",
+    "supervisorDocumentNumber": "abc",
+    "supervisorIdentityNumber": "abc",
+    "phonesLine": "abc",
+    "referalSource": 1,
+    "contactData": "abc",
+    "balance": 1.0,
+    "legalForm": 1,
+    "logo": null,
+}
+
+### Delete a Tenant
+DELETE {{host}}tenants/1
+Authorization: Bearer {{loginReq.response.body.token}}
+Content-Type: application/json
+
+{
+}
+
+### Get the list of Singularity, using advanced search
+POST {{host}}singularities/search
+Authorization: Bearer {{loginReq.response.body.token}}
+Content-Type: application/json
+
+{
+    "paging": {
+        "skip": 0,
+        "take": 10,
+        "returnCount": true
+    },
+    "sort": {
+        "id": {
+            "operator": "asc",
+            "ordinal": 0,
+        },
+    },
+}
+
+### Add a Singularity
+POST {{host}}singularities
+Authorization: Bearer {{loginReq.response.body.token}}
+Content-Type: application/json
+
+{
+    "name": "abc",
+    "version": 1,
+    "private": false,
+}
+
+### Edit a Singularity
+PUT {{host}}singularities
+Authorization: Bearer {{loginReq.response.body.token}}
+Content-Type: application/json
+
+{
+    "id": 1,
+    "name": "abc",
+    "version": 1,
+    "private": false,
+}
+
+### Delete a Singularity
+DELETE {{host}}singularities/1
+Authorization: Bearer {{loginReq.response.body.token}}
+Content-Type: application/json
+
+{
+}
+
+# ===========================================
+# ROCKSDB CONTROLLER EXAMPLES
+# ===========================================
+
+### Store a key-value pair in RocksDB
+POST {{host}}rocksdb/store
+Authorization: Bearer {{loginReq.response.body.token}}
+Content-Type: application/json
+
+{
+    "key": "point:1",
+    "value": "{ \"id\": 1, \"singularityId\": 100, \"spaceDimension\": 3, \"layer\": 1, \"weight\": 0.85, \"state\": 1, \"userId\": 42, \"category\": 5, \"description\": \"Sample space point\" }"
+}
+
+### Store JSON data in RocksDB
+POST {{host}}rocksdb/store
+Authorization: Bearer {{loginReq.response.body.token}}
+Content-Type: application/json
+
+{
+    "key": "config:app",
+    "value": "{\"version\":\"1.0\",\"debug\":true,\"features\":[\"auth\",\"logging\"]}"
+}
+
+### Retrieve a value from RocksDB
+GET {{host}}rocksdb/get/point:1
+Authorization: Bearer {{loginReq.response.body.token}}
+
+### Check if key exists in RocksDB
+GET {{host}}rocksdb/exists/user:123
+Authorization: Bearer {{loginReq.response.body.token}}
+
+### Get all key-value pairs from RocksDB
+GET {{host}}rocksdb/all
+Authorization: Bearer {{loginReq.response.body.token}}
+
+### Get range of key-value pairs from RocksDB
+GET {{host}}rocksdb/range?startKey=user:&endKey=user:999
+Authorization: Bearer {{loginReq.response.body.token}}
+
+### Get count of records in RocksDB
+GET {{host}}rocksdb/count
+Authorization: Bearer {{loginReq.response.body.token}}
+
+### Delete a key from RocksDB
+DELETE {{host}}rocksdb/delete/user:123
+Authorization: Bearer {{loginReq.response.body.token}}
+
+### Clear all data from RocksDB
+POST {{host}}rocksdb/clear
+Authorization: Bearer {{loginReq.response.body.token}}
+
+### Compact RocksDB database
+POST {{host}}rocksdb/compact
+Authorization: Bearer {{loginReq.response.body.token}}
+
+# ===========================================
+# QDRANT CONTROLLER EXAMPLES
+# ===========================================
+
+### Create a new collection with default payload indexes
+POST {{host}}qdrant/collections
+Authorization: Bearer {{loginReq.response.body.token}}
+Content-Type: application/json
+
+{
+    "collectionName": "space_vectors",
+    "vectorSize": 128,
+    "distance": "cosine",
+    "createPayloadIndexes": true
+}
+
+### Create a collection without payload indexes
+POST {{host}}qdrant/collections
+Authorization: Bearer {{loginReq.response.body.token}}
+Content-Type: application/json
+
+{
+    "collectionName": "test_collection",
+    "vectorSize": 64,
+    "distance": "euclidean",
+    "createPayloadIndexes": false
+}
+
+### Check if collection exists
+GET {{host}}qdrant/collections/space_vectors/exists
+Authorization: Bearer {{loginReq.response.body.token}}
+
+### Get all collections
+GET {{host}}qdrant/collections
+Authorization: Bearer {{loginReq.response.body.token}}
+
+### Get collection information
+GET {{host}}qdrant/collections/space_vectors/info
+Authorization: Bearer {{loginReq.response.body.token}}
+
+### Upsert points with vectors and payload
+POST {{host}}qdrant/collections/space_vectors/points
+Authorization: Bearer {{loginReq.response.body.token}}
+Content-Type: application/json
+
+{
+    "points": [
+        {
+            "id": "point1",
+            "vector": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
+            "payload": {
+                "id": 1,
+                "singularityId": 100,
+                "spaceDimension": 3,
+                "layer": 1,
+                "weight": 0.85,
+                "state": 1,
+                "userId": 42,
+                "category": 5,
+                "description": "Sample space point"
+            }
+        },
+        {
+            "id": "point2",
+            "vector": [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 0.1],
+            "payload": {
+                "id": 2,
+                "singularityId": 101,
+                "spaceDimension": 3,
+                "layer": 2,
+                "weight": 0.92,
+                "state": 2,
+                "userId": 43,
+                "category": 3,
+                "description": "Another space point"
+            }
+        }
+    ]
+}
+
+### Search for similar vectors
+POST {{host}}qdrant/collections/space_vectors/search
+Authorization: Bearer {{loginReq.response.body.token}}
+Content-Type: application/json
+
+{
+    "vector": [0.15, 0.25, 0.35, 0.45, 0.55, 0.65, 0.75, 0.85, 0.95, 0.05],
+    "limit": 5,
+    "scoreThreshold": 0.7
+}
+
+### Search with payload filter
+POST {{host}}qdrant/collections/space_vectors/search
+Authorization: Bearer {{loginReq.response.body.token}}
+Content-Type: application/json
+
+{
+    "vector": [0.15, 0.25, 0.35, 0.45, 0.55, 0.65, 0.75, 0.85, 0.95, 0.05],
+    "limit": 10,
+    "scoreThreshold": 0.5,
+    "filter": {
+        "must": [
+            {
+                "field": "userId",
+                "value": 42
+            },
+            {
+                "field": "state",
+                "value": 1
+            }
+        ]
+        ]
+    }
+}
+
+### Create custom payload index
+POST {{host}}qdrant/collections/space_vectors/indexes
+Authorization: Bearer {{loginReq.response.body.token}}
+Content-Type: application/json
+
+{
+    "fieldName": "description",
+    "schemaType": "text"
+}
+
+### Create default payload indexes
+POST {{host}}qdrant/collections/space_vectors/indexes/default
+Authorization: Bearer {{loginReq.response.body.token}}
+
+### Get all payload indexes
+GET {{host}}qdrant/collections/space_vectors/indexes
+Authorization: Bearer {{loginReq.response.body.token}}
+
+### Delete points by IDs
+DELETE {{host}}qdrant/collections/space_vectors/points
+Authorization: Bearer {{loginReq.response.body.token}}
+Content-Type: application/json
+
+{
+    "pointIds": ["point1", "point2"]
+}
+
+### Delete collection
+DELETE {{host}}qdrant/collections/test_collection
+Authorization: Bearer {{loginReq.response.body.token}}
+
+# ===========================================
+# ADVANCED QDRANT EXAMPLES
+# ===========================================
+
+### Upsert points with different payload types
+POST {{host}}qdrant/collections/space_vectors/points
+Authorization: Bearer {{loginReq.response.body.token}}
+Content-Type: application/json
+
+{
+    "points": [
+        {
+            "id": "advanced_point_1",
+            "vector": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8],
+            "payload": {
+                "id": 1001,
+                "singularityId": 200,
+                "spaceDimension": 4,
+                "layer": 3,
+                "weight": 0.95,
+                "state": 3,
+                "userId": 100,
+                "category": 7,
+                "metadata": {
+                    "created_at": "2024-01-15T10:30:00Z",
+                    "tags": ["important", "processed"],
+                    "confidence": 0.98
+                },
+                "coordinates": {
+                    "x": 1.5,
+                    "y": 2.3,
+                    "z": 0.8,
+                    "w": 1.2
+                }
+            }
+        }
+    ]
+}
+
+### Search with complex filter
+POST {{host}}qdrant/collections/space_vectors/search
+Authorization: Bearer {{loginReq.response.body.token}}
+Content-Type: application/json
+
+{
+    "vector": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8],
+    "limit": 3,
+    "scoreThreshold": 0.8,
+    "filter": {
+        "must": [
+            {
+                "field": "layer",
+                "value": 3
+            },
+            {
+                "field": "weight",
+                "value": 0.9
+            }
+        ]
+    }
+}
+
+###############################################################################
+# POINTS API
+###############################################################################
+
+### Add Point
+POST {{host}}points
+Authorization: Bearer {{loginReq.response.body.token}}
+Content-Type: application/json
+
+{
+    "fromId": null,
+    "id": 2,
+    "layer": 0,
+    "dimension": 0,
+    "weight": 1,
+    "singularityId": 1,
+    "userId": 1,
+    "payload": "TEST POINT"
+}
+
+### Add Point with FromId (creates segment automatically)
+POST {{host}}points
+Authorization: Bearer {{loginReq.response.body.token}}
+Content-Type: application/json
+
+{
+    "fromId": 1,
+    "id": 0,
+    "layer": 2,
+    "dimension": 100,
+    "weight": 0.9,
+    "singularityId": 1,
+    "userId": 1,
+    "payload": "Related knowledge point about neural networks"
+}
+
+### Update Point
+PUT {{host}}points
+Authorization: Bearer {{loginReq.response.body.token}}
+Content-Type: application/json
+
+{
+    "id": 1,
+    "layer": 1,
+    "dimension": 100,
+    "weight": 0.95,
+    "singularityId": 1,
+    "userId": 1,
+    "payload": "Updated knowledge point content"
+}
+
+### Delete Point
+DELETE {{host}}points/1
+Authorization: Bearer {{loginReq.response.body.token}}
+
+### Search Points by Query
+POST {{host}}points/search
+Authorization: Bearer {{loginReq.response.body.token}}
+Content-Type: application/json
+
+{
+    "query": "TEST",
+    "singularityId": 1,
+    "dimension": 0,
+    "layer": 0,
+    "limit": 10,
+    "scoreThreshold": 0.7
+}
+
+### Search Points with Filter
+POST {{host}}points/search
+Authorization: Bearer {{loginReq.response.body.token}}
+Content-Type: application/json
+
+{
+    "query": "machine learning",
+    "limit": 5,
+    "scoreThreshold": 0.8
+}
+
+###############################################################################
+# SEGMENTS API
+###############################################################################
+
+### Add Segment
+POST {{host}}segments?fromId=1&toId=2
+Authorization: Bearer {{loginReq.response.body.token}}
+
+### Delete Segment
+DELETE {{host}}segments?fromId=1&toId=2
+Authorization: Bearer {{loginReq.response.body.token}}
+
+
+### Delete Segment
+POST {{host}}agi/execute
+Content-Type: application/json
+
+{
+  "instruction": "addvertex index: 1, dimensions: [1, 0, 0, 0], weight: 0.5, data: text: \"TEST\";"
+}

@@ -1,0 +1,25 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="AgentChatCompleteRequest.cs" />
+    <Compile Remove="AgentChatCompleteResponse.cs" />
+    <Compile Remove="AgentInfo.cs" />
+    <Compile Remove="AgentRunInfo.cs" />
+    <Compile Remove="AIMarkup.cs" />
+    <Compile Remove="OpenAIFunctionCall.cs" />
+    <Compile Remove="OpenAIMessage.cs" />
+    <Compile Remove="UserInfo.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AI\AI.csproj" />
+    <ProjectReference Include="..\Api.AspNetCore\Api.AspNetCore.csproj" />
+  </ItemGroup>
+
+</Project>

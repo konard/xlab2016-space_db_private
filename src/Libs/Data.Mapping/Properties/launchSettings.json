@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "Data.Mapping": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:51124;http://localhost:51125"
+    }
+  }
+}

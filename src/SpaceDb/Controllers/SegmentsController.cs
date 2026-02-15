@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using SpaceDb.Models.Dtos;
 using SpaceDb.Services;
 
 namespace SpaceDb.Controllers;

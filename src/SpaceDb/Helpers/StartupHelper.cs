@@ -52,15 +52,6 @@ namespace SpaceDb.Helpers
 
             services.AddSingleton<MagicKernel>();
 
-            // Links Service (Platform.Data.Doublets)
-            services.AddSingleton<ILinksService>(provider =>
-            {
-                var logger = provider.GetRequiredService<ILogger<LinksService>>();
-                var dbPath = Environment.GetEnvironmentVariable("LINKS_DB_PATH") ??
-                             Path.Combine(Directory.GetCurrentDirectory(), "linksdb");
-                return new LinksService(dbPath, logger);
-            });
-
             // Qdrant Services
             services.Configure<QdrantConfig>(configuration.GetSection("Providers:Qdrant"));
             services.AddScoped<IQdrantService>(provider =>

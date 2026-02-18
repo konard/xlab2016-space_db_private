@@ -64,9 +64,9 @@ namespace Magic.Kernel.Functions
                 };
 
                 var result = await _configuration.DefaultInferenceDevice.Print(inputData, outputData);
-                if (result != DeviceOperationResult.Success)
+                if (!result.IsSuccess)
                 {
-                    throw new InvalidOperationException($"Failed to print to inference device: {result}");
+                    throw new InvalidOperationException($"Failed to print to inference device: {result.State}" + (result.ErrorMessage != null ? $", {result.ErrorMessage}" : ""));
                 }
 
                 // Результат inference помещаем в стек

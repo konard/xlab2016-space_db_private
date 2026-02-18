@@ -1,4 +1,4 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.8.34511.84
@@ -32,6 +32,8 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Magic.Kernel.Tests", "Libs\Magic.Kernel.Tests\Magic.Kernel.Tests.csproj", "{2E28A24B-6D87-57B9-20B1-838C02ECD093}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SpaceDb.RocksDb", "Libs\SpaceDb.RocksDb\SpaceDb.RocksDb.csproj", "{427F6397-FCE6-4EB1-A45D-2B2765D922EE}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Magic.SSC", "Libs\Magic.SSC\Magic.SSC.csproj", "{E8F9A1B2-3C4D-5E6F-7890-ABCDEF123456}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Space.OS.Simulator", "Space.OS.Simulator\Space.OS.Simulator.csproj", "{760F28E6-841D-4FEA-BF18-3B104429E935}"
 EndProject
@@ -225,6 +227,18 @@ Global
 		{760F28E6-841D-4FEA-BF18-3B104429E935}.Release|x64.Build.0 = Release|Any CPU
 		{760F28E6-841D-4FEA-BF18-3B104429E935}.Release|x86.ActiveCfg = Release|Any CPU
 		{760F28E6-841D-4FEA-BF18-3B104429E935}.Release|x86.Build.0 = Release|Any CPU
+		{E8F9A1B2-3C4D-5E6F-7890-ABCDEF123456}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E8F9A1B2-3C4D-5E6F-7890-ABCDEF123456}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E8F9A1B2-3C4D-5E6F-7890-ABCDEF123456}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{E8F9A1B2-3C4D-5E6F-7890-ABCDEF123456}.Debug|x64.Build.0 = Debug|Any CPU
+		{E8F9A1B2-3C4D-5E6F-7890-ABCDEF123456}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{E8F9A1B2-3C4D-5E6F-7890-ABCDEF123456}.Debug|x86.Build.0 = Debug|Any CPU
+		{E8F9A1B2-3C4D-5E6F-7890-ABCDEF123456}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E8F9A1B2-3C4D-5E6F-7890-ABCDEF123456}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E8F9A1B2-3C4D-5E6F-7890-ABCDEF123456}.Release|x64.ActiveCfg = Release|Any CPU
+		{E8F9A1B2-3C4D-5E6F-7890-ABCDEF123456}.Release|x64.Build.0 = Release|Any CPU
+		{E8F9A1B2-3C4D-5E6F-7890-ABCDEF123456}.Release|x86.ActiveCfg = Release|Any CPU
+		{E8F9A1B2-3C4D-5E6F-7890-ABCDEF123456}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -241,6 +255,7 @@ Global
 		{CF1A27E5-1906-8079-95E7-A68225D24914} = {D706DD7D-F543-40E5-A8F1-0B11DA27D26D}
 		{2E28A24B-6D87-57B9-20B1-838C02ECD093} = {D706DD7D-F543-40E5-A8F1-0B11DA27D26D}
 		{427F6397-FCE6-4EB1-A45D-2B2765D922EE} = {D706DD7D-F543-40E5-A8F1-0B11DA27D26D}
+		{E8F9A1B2-3C4D-5E6F-7890-ABCDEF123456} = {D706DD7D-F543-40E5-A8F1-0B11DA27D26D}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {0989C933-027C-481E-A961-1167A99C0239}

@@ -40,7 +40,7 @@ namespace SpaceDb.Services
                 // TODO: quadrant
                 var projectionResult = await projector.ProjectAsync(vertex, out position);
 
-                if (projectionResult != DeviceOperationResult.Success)
+                if (!projectionResult.IsSuccess)
                 {
                     return SpaceOperationResult.InnerDeviceFailure;
                 }
@@ -198,7 +198,7 @@ namespace SpaceDb.Services
                 // TODO: quadrant
                 var projectionResult = await projector.ProjectAsync(shape, out positions);
 
-                if (projectionResult != DeviceOperationResult.Success)
+                if (!projectionResult.IsSuccess)
                 {
                     return SpaceOperationResult.InnerDeviceFailure;
                 }
@@ -294,8 +294,13 @@ namespace SpaceDb.Services
 
         public async Task<SSCResult> CompileAsync(IStreamDevice device, ISSCompiler compiler)
         {
-            await compiler.CompileAsync(device).ConfigureAwait(false);
-            return new SSCResult();
+            if (compiler == null)
+            {
+                throw new ArgumentNullException(nameof(compiler));
+            }
+
+            var result = await compiler.CompileAsync(device, this).ConfigureAwait(false);
+            return result ?? new SSCResult();
         }
     }
 }

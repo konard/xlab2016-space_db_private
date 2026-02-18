@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -8,10 +8,10 @@ namespace Magic.Kernel.Devices
 {
     public interface IIODevice
     {
-        public Task<DeviceOperationResult> Open();
-        public Task<DeviceOperationResult> Read(out byte[] bytes);
-        public Task<DeviceOperationResult> Write(byte[] bytes);
-        public Task<DeviceOperationResult> Control(DeviceControlBase deviceControl);
-        public Task<DeviceOperationResult> Close();
+        Task<DeviceOperationResult> OpenAsync();
+        Task<(DeviceOperationResult Result, byte[] Bytes)> ReadAsync();
+        Task<DeviceOperationResult> WriteAsync(byte[] bytes);
+        Task<DeviceOperationResult> ControlAsync(DeviceControlBase deviceControl);
+        Task<DeviceOperationResult> CloseAsync();
     }
 }

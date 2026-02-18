@@ -53,7 +53,8 @@ namespace SpaceDb.Helpers
 
             services.AddSingleton<MagicKernel>();
 
-            services.AddSingleton<ISSCompiler>(sp => new SpaceDbSSCCompiler(sp.GetRequiredService<RocksDbSpaceDisk>()));
+            services.AddSingleton<Magic.SSC.TextCompiler>();
+            services.AddSingleton<ISSCompiler>(sp => new SpaceDbSSCCompiler(sp.GetRequiredService<RocksDbSpaceDisk>(), sp.GetRequiredService<Magic.SSC.TextCompiler>()));
 
             // Qdrant Services
             services.Configure<QdrantConfig>(configuration.GetSection("Providers:Qdrant"));

@@ -8,6 +8,10 @@ namespace Magic.Kernel.Devices
 {
     public interface IStreamChunk
     {
-        public byte[] Data { get; set; }
+        DataFormat DataFormat { get; set; }
+        ApplicationFormat ApplicationFormat { get; set; }
+        long ChunkSize { get; set; }
+        StructurePosition Position { get; set; }
+        byte[] Data { get; set; }
     }
 }

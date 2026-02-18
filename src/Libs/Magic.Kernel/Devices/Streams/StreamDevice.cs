@@ -12,10 +12,10 @@ namespace Magic.Kernel.Devices.Streams
     /// <summary>Generic stream device wrapper; override or use for in-memory / test streams.</summary>
     public class StreamDevice : IStreamDevice, IType
     {
-        private readonly Func<byte[]?>? _readAll;
-        private readonly Action<byte[]?>? _writeAll;
-        private long _length;
-        private long _position;
+        private readonly Func<byte[]?>? readAll;
+        private readonly Action<byte[]?>? writeAll;
+        private long length;
+        private long position;
 
         public long? Index { get; set; }
         public string Name { get; set; } = "";
@@ -23,51 +23,50 @@ namespace Magic.Kernel.Devices.Streams
 
         public StreamDevice(Func<byte[]?>? readAll = null, Action<byte[]?>? writeAll = null, long length = 0)
         {
-            _readAll = readAll;
-            _writeAll = writeAll;
-            _length = length;
+            this.readAll = readAll;
+            this.writeAll = writeAll;
+            this.length = length;
         }
 
-        public Task<DeviceOperationResult> Open() => Task.FromResult(DeviceOperationResult.Success);
+        public Task<DeviceOperationResult> OpenAsync() => Task.FromResult(DeviceOperationResult.Success);
 
-        public Task<DeviceOperationResult> Read(out byte[] bytes)
+        public Task<(DeviceOperationResult Result, byte[] Bytes)> ReadAsync()
         {
-            bytes = _readAll?.Invoke() ?? Array.Empty<byte>();
+            var bytes = readAll?.Invoke() ?? Array.Empty<byte>();
+            return Task.FromResult((DeviceOperationResult.Success, bytes));
+        }
+
+        public Task<DeviceOperationResult> WriteAsync(byte[] bytes)
+        {
+            writeAll?.Invoke(bytes);
             return Task.FromResult(DeviceOperationResult.Success);
         }
 
-        public Task<DeviceOperationResult> Write(byte[] bytes)
+        public Task<DeviceOperationResult> ControlAsync(DeviceControlBase deviceControl) => Task.FromResult(DeviceOperationResult.Success);
+
+        public Task<DeviceOperationResult> CloseAsync() => Task.FromResult(DeviceOperationResult.Success);
+
+        public Task<(DeviceOperationResult Result, IStreamChunk? Chunk)> ReadChunkAsync()
         {
-            _writeAll?.Invoke(bytes);
-            return Task.FromResult(DeviceOperationResult.Success);
-        }
-
-        public Task<DeviceOperationResult> Control(DeviceControlBase deviceControl) => Task.FromResult(DeviceOperationResult.Success);
-
-        public Task<DeviceOperationResult> Close() => Task.FromResult(DeviceOperationResult.Success);
-
-        public Task<DeviceOperationResult> ReadChunkAsync(out IStreamChunk chunk)
-        {
-            chunk = new StreamChunk { Data = _readAll?.Invoke() ?? Array.Empty<byte>() };
-            return Task.FromResult(DeviceOperationResult.Success);
+            var data = readAll?.Invoke() ?? Array.Empty<byte>();
+            var chunk = new StreamChunk { ChunkSize = data?.Length ?? 0, Data = data ?? Array.Empty<byte>() };
+            return Task.FromResult((DeviceOperationResult.Success, (IStreamChunk?)chunk));
         }
 
         public Task<DeviceOperationResult> WriteChunkAsync(IStreamChunk chunk)
         {
-            _writeAll?.Invoke(chunk?.Data);
+            writeAll?.Invoke(chunk?.Data);
             return Task.FromResult(DeviceOperationResult.Success);
         }
 
-        public Task<DeviceOperationResult> MoveAsync(long offset)
+        public Task<DeviceOperationResult> MoveAsync(StructurePosition? position)
         {
-            _position = Math.Max(0, offset);
+            long pos = position == null ? 0 : (position.AbsolutePosition != 0 ? position.AbsolutePosition : position.RelativeIndex);
+            this.position = Math.Max(0, pos);
             return Task.FromResult(DeviceOperationResult.Success);
         }
 
-        public Task<DeviceOperationResult> LengthAsync(out long length)
-        {
-            length = _length;
-            return Task.FromResult(DeviceOperationResult.Success);
-        }
+        public Task<(DeviceOperationResult Result, long Length)> LengthAsync()
+            => Task.FromResult((DeviceOperationResult.Success, length));
     }
 }

@@ -112,8 +112,14 @@ namespace Magic.Kernel.Compilation
             if (ch == ',') { _index++; return new Token(TokenKind.Comma, ",", start, _index); }
             if (ch == '[') { _index++; return new Token(TokenKind.LBracket, "[", start, _index); }
             if (ch == ']') { _index++; return new Token(TokenKind.RBracket, "]", start, _index); }
+            if (ch == '(') { _index++; return new Token(TokenKind.LParen, "(", start, _index); }
+            if (ch == ')') { _index++; return new Token(TokenKind.RParen, ")", start, _index); }
             if (ch == '{') { _index++; return new Token(TokenKind.LBrace, "{", start, _index); }
             if (ch == '}') { _index++; return new Token(TokenKind.RBrace, "}", start, _index); }
+            if (ch == '.') { _index++; return new Token(TokenKind.Dot, ".", start, _index); }
+            if (ch == '=') { _index++; return new Token(TokenKind.Assign, "=", start, _index); }
+            if (ch == '<') { _index++; return new Token(TokenKind.LessThan, "<", start, _index); }
+            if (ch == '>') { _index++; return new Token(TokenKind.GreaterThan, ">", start, _index); }
             if (ch == ';') { _index++; return new Token(TokenKind.Semicolon, ";", start, _index); }
 
             // Строка в кавычках

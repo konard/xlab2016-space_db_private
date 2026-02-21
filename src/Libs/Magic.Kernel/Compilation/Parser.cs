@@ -2014,203 +2014,129 @@ namespace Magic.Kernel.Compilation
             return nodes;
         }
 
+        private static readonly HashSet<string> AsmOpcodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "addvertex",
+            "addrelation",
+            "addshape",
+            "call",
+            "pop",
+            "push",
+            "nop",
+            "def",
+            "defgen",
+            "callobj",
+            "awaitobj"
+        };
+
         private static List<string> SplitAsmInstructions(string asmText)
         {
-            // Делит asm-текст на инструкции по ';', игнорируя ';' внутри строк, [ ], { } и однострочные комментарии //
+            // Делит asm-текст на инструкции по ';' и по newline, когда следующая строка начинается с opcode.
             var result = new List<string>();
-            var sb = new System.Text.StringBuilder();
+            if (string.IsNullOrWhiteSpace(asmText))
+                return result;
 
+            var scanner = new Scanner(asmText);
+            var current = new List<string>();
             var braceDepth = 0;
             var bracketDepth = 0;
-            var inString = false;
-            var escaped = false;
-            var opcodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            var parenDepth = 0;
+
+            void FlushInstruction()
             {
-                "addvertex",
-                "addrelation",
-                "addshape",
-                "call",
-                "pop",
-                "push",
-                "nop",
-                "def",
-                "defgen",
-                "callobj",
-                "awaitobj"
-            };
+                if (current.Count == 0) return;
+                var instruction = string.Join(" ", current).Trim();
+                if (!string.IsNullOrWhiteSpace(instruction))
+                    result.Add(instruction);
+                current.Clear();
+            }
 
-            for (var i = 0; i < asmText.Length; i++)
+            while (!scanner.Current.IsEndOfInput)
             {
-                var ch = asmText[i];
-
-                if (inString)
+                var tok = scanner.Scan();
+                switch (tok.Kind)
                 {
-                    sb.Append(ch);
-                    if (escaped)
-                    {
-                        escaped = false;
-                        continue;
-                    }
-                    if (ch == '\\')
-                    {
-                        escaped = true;
-                        continue;
-                    }
-                    if (ch == '"')
-                    {
-                        inString = false;
-                    }
-                    continue;
-                }
-
-                // комментарии //
-                if (ch == '/' && i + 1 < asmText.Length && asmText[i + 1] == '/')
-                {
-                    // пропускаем до конца строки
-                    while (i < asmText.Length && asmText[i] != '\n')
-                    {
-                        i++;
-                    }
-                    // добавим перевод строки как разделитель пробелов
-                    sb.Append(' ');
-                    continue;
-                }
-
-                if (ch == '"')
-                {
-                    inString = true;
-                    sb.Append(ch);
-                    continue;
-                }
-
-                if (ch == '{')
-                {
-                    braceDepth++;
-                    sb.Append(ch);
-                    continue;
-                }
-                if (ch == '}')
-                {
-                    if (braceDepth > 0) braceDepth--;
-                    sb.Append(ch);
-                    continue;
-                }
-                if (ch == '[')
-                {
-                    bracketDepth++;
-                    sb.Append(ch);
-                    continue;
-                }
-                if (ch == ']')
-                {
-                    if (bracketDepth > 0) bracketDepth--;
-                    sb.Append(ch);
-                    continue;
-                }
-
-                if (ch == ';' && braceDepth == 0 && bracketDepth == 0)
-                {
-                    var instr = sb.ToString().Trim();
-                    if (!string.IsNullOrWhiteSpace(instr))
-                    {
-                        result.Add(instr);
-                    }
-                    sb.Clear();
-                    continue;
-                }
-
-                // Newline как разделитель инструкций (без ';') — но только если следующая строка начинается с opcode.
-                // Это позволяет писать:
-                //   call ..., shapeB: shape: { ... }
-                //   pop [1];
-                // и НЕ ломает переносы внутри параметров вроде:
-                //   addvertex index: 1,
-                //     dimensions: [...]
-                if ((ch == '\r' || ch == '\n') && braceDepth == 0 && bracketDepth == 0)
-                {
-                    // Пропускаем CRLF
-                    var lookahead = i + 1;
-                    if (ch == '\r' && lookahead < asmText.Length && asmText[lookahead] == '\n')
-                    {
-                        lookahead++;
-                    }
-
-                    // Ищем следующий "токен" (пропуская пустые строки/пробелы/таб/комментарии)
-                    while (lookahead < asmText.Length)
-                    {
-                        // пробелы/табы/переводы строк
-                        while (lookahead < asmText.Length && (asmText[lookahead] == ' ' || asmText[lookahead] == '\t' || asmText[lookahead] == '\r' || asmText[lookahead] == '\n'))
-                        {
-                            lookahead++;
-                        }
-                        if (lookahead >= asmText.Length) break;
-
-                        // комментарий //
-                        if (asmText[lookahead] == '/' && lookahead + 1 < asmText.Length && asmText[lookahead + 1] == '/')
-                        {
-                            // пропускаем до конца строки
-                            while (lookahead < asmText.Length && asmText[lookahead] != '\n')
-                            {
-                                lookahead++;
-                            }
-                            continue;
-                        }
-
+                    case TokenKind.LBrace:
+                        braceDepth++;
+                        current.Add("{");
                         break;
-                    }
+                    case TokenKind.RBrace:
+                        if (braceDepth > 0) braceDepth--;
+                        current.Add("}");
+                        break;
+                    case TokenKind.LBracket:
+                        bracketDepth++;
+                        current.Add("[");
+                        break;
+                    case TokenKind.RBracket:
+                        if (bracketDepth > 0) bracketDepth--;
+                        current.Add("]");
+                        break;
+                    case TokenKind.LParen:
+                        parenDepth++;
+                        current.Add("(");
+                        break;
+                    case TokenKind.RParen:
+                        if (parenDepth > 0) parenDepth--;
+                        current.Add(")");
+                        break;
+                    case TokenKind.Semicolon:
+                        if (braceDepth == 0 && bracketDepth == 0 && parenDepth == 0)
+                            FlushInstruction();
+                        else
+                            current.Add(";");
+                        break;
+                    case TokenKind.Newline:
+                        if (braceDepth == 0 && bracketDepth == 0 && parenDepth == 0 && NextAsmTokenStartsOpcode(scanner))
+                            FlushInstruction();
+                        break;
+                    case TokenKind.EndOfInput:
+                        break;
+                    default:
+                        current.Add(RenderAsmToken(tok));
+                        break;
+                }
+            }
 
-                    // Читаем идентификатор opcode
-                    var tokStart = lookahead;
-                    if (tokStart < asmText.Length && (char.IsLetter(asmText[tokStart]) || asmText[tokStart] == '_'))
-                    {
-                        var tokEnd = tokStart + 1;
-                        while (tokEnd < asmText.Length && (char.IsLetterOrDigit(asmText[tokEnd]) || asmText[tokEnd] == '_'))
-                        {
-                            tokEnd++;
-                        }
-                        var nextToken = asmText.Substring(tokStart, tokEnd - tokStart);
+            FlushInstruction();
+            return result;
+        }
 
-                        if (opcodes.Contains(nextToken))
-                        {
-                            var instr = sb.ToString().Trim();
-                            if (!string.IsNullOrWhiteSpace(instr))
-                            {
-                                result.Add(instr);
-                                sb.Clear();
-                            }
-
-                            // перемещаемся дальше — текущий newline не добавляем
-                            continue;
-                        }
-                    }
-
-                    // иначе newline не считается разделителем, нормализуем в пробел
-                    sb.Append(' ');
+        private static bool NextAsmTokenStartsOpcode(Scanner scanner)
+        {
+            var offset = 0;
+            while (true)
+            {
+                var tok = scanner.Watch(offset);
+                if (tok == null || tok.Value.Kind == TokenKind.EndOfInput)
+                    return false;
+                if (tok.Value.Kind == TokenKind.Newline)
+                {
+                    offset++;
                     continue;
                 }
-
-                // normalize tabs/newlines (которые не стали разделителями) to spaces to keep Parser.Parse happy
-                if (ch == '\t')
-                {
-                    sb.Append(' ');
-                }
-                else if (ch == '\r' || ch == '\n')
-                {
-                    sb.Append(' ');
-                }
-                else
-                {
-                    sb.Append(ch);
-                }
+                return tok.Value.Kind == TokenKind.Identifier && AsmOpcodes.Contains(tok.Value.Value ?? "");
             }
+        }
 
-            var tail = sb.ToString().Trim();
-            if (!string.IsNullOrWhiteSpace(tail))
+        private static string RenderAsmToken(Token tok)
+        {
+            return tok.Kind switch
             {
-                result.Add(tail);
-            }
+                TokenKind.Colon => ":",
+                TokenKind.Comma => ",",
+                TokenKind.Dot => ".",
+                TokenKind.Assign => "=",
+                TokenKind.LessThan => "<",
+                TokenKind.GreaterThan => ">",
+                TokenKind.StringLiteral => "\"" + EscapeStringLiteral(tok.Value ?? "") + "\"",
+                _ => tok.Value ?? ""
+            };
+        }
 
-            return result;
+        private static string EscapeStringLiteral(string value)
+        {
+            return value.Replace("\\", "\\\\").Replace("\"", "\\\"");
         }
 
         private string CollectStatementCode(string[] lines, ref int startIndex, bool inProcedure, bool inFunction, bool inEntryPoint)

@@ -31,8 +31,14 @@ namespace Magic.Kernel.Compilation
                    Kind == TokenKind.Comma && c == ',' ||
                    Kind == TokenKind.LBracket && c == '[' ||
                    Kind == TokenKind.RBracket && c == ']' ||
+                   Kind == TokenKind.LParen && c == '(' ||
+                   Kind == TokenKind.RParen && c == ')' ||
                    Kind == TokenKind.LBrace && c == '{' ||
-                   Kind == TokenKind.RBrace && c == '}';
+                   Kind == TokenKind.RBrace && c == '}' ||
+                   Kind == TokenKind.Dot && c == '.' ||
+                   Kind == TokenKind.Assign && c == '=' ||
+                   Kind == TokenKind.LessThan && c == '<' ||
+                   Kind == TokenKind.GreaterThan && c == '>';
         }
 
         public override string ToString() => Kind == TokenKind.EndOfInput ? "<eof>" : $"{Kind}:{Value}";

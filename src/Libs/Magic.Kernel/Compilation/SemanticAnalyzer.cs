@@ -17,10 +17,12 @@ namespace Magic.Kernel.Compilation
     public class SemanticAnalyzer
     {
         private readonly Assembler _assembler;
+        private readonly StatementLoweringCompiler _statementLoweringCompiler;
 
         public SemanticAnalyzer()
         {
             _assembler = new Assembler();
+            _statementLoweringCompiler = new StatementLoweringCompiler();
         }
 
         public Command Analyze(InstructionNode instruction)
@@ -35,8 +37,8 @@ namespace Magic.Kernel.Compilation
             var result = new AnalyzedProgram();
             if (programStructure.EntryPoint != null && programStructure.EntryPoint.Count > 0)
             {
-                foreach (var astNode in programStructure.EntryPoint)
-                    result.EntryPoint.Add(Analyze(astNode));
+                foreach (var instructionNode in LowerToInstructions(programStructure.EntryPoint))
+                    result.EntryPoint.Add(Analyze(instructionNode));
             }
             else
             {
@@ -45,15 +47,15 @@ namespace Magic.Kernel.Compilation
             foreach (var proc in programStructure.Procedures)
             {
                 var procedure = new Processor.Procedure { Name = proc.Key };
-                foreach (var astNode in proc.Value)
-                    procedure.Body.Add(Analyze(astNode));
+                foreach (var instructionNode in LowerToInstructions(proc.Value))
+                    procedure.Body.Add(Analyze(instructionNode));
                 result.Procedures[proc.Key] = procedure;
             }
             foreach (var func in programStructure.Functions)
             {
                 var function = new Processor.Function { Name = func.Key };
-                foreach (var astNode in func.Value)
-                    function.Body.Add(Analyze(astNode));
+                foreach (var instructionNode in LowerToInstructions(func.Value))
+                    function.Body.Add(Analyze(instructionNode));
                 result.Functions[func.Key] = function;
             }
             return result;
@@ -66,6 +68,40 @@ namespace Magic.Kernel.Compilation
             foreach (var node in nodes)
                 block.Add(Analyze(node));
             return block;
+        }
+
+        private IEnumerable<InstructionNode> LowerToInstructions(IEnumerable<AstNode> bodyNodes)
+        {
+            var instructions = new List<InstructionNode>();
+            var statementLines = new List<string>();
+
+            foreach (var node in bodyNodes)
+            {
+                if (node is StatementLineNode statementLineNode)
+                {
+                    statementLines.Add(statementLineNode.Text);
+                    continue;
+                }
+
+                FlushStatementLines(statementLines, instructions);
+
+                if (node is InstructionNode instructionNode)
+                {
+                    instructions.Add(instructionNode);
+                }
+            }
+
+            FlushStatementLines(statementLines, instructions);
+            return instructions;
+        }
+
+        private void FlushStatementLines(List<string> statementLines, List<InstructionNode> instructions)
+        {
+            if (statementLines.Count == 0)
+                return;
+
+            instructions.AddRange(_statementLoweringCompiler.Lower(statementLines));
+            statementLines.Clear();
         }
 
         private Opcodes MapOpcode(string opcode)

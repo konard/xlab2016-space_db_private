@@ -122,13 +122,25 @@ namespace Magic.Kernel.Compilation
             SkipOptionalComma();
             if (_scanner!.Current.IsEndOfInput)
                 return new List<ParameterNode>();
-            string name;
-            if (_scanner.Current.Kind == TokenKind.StringLiteral)
-                name = _scanner.Scan().Value;
-            else if (_scanner.Current.Kind == TokenKind.Identifier)
-                name = _scanner.Scan().Value;
-            else
+
+            Token nameToken = default;
+            var parsed = Or(
+                () =>
+                {
+                    if (_scanner.Current.Kind != TokenKind.StringLiteral) return false;
+                    nameToken = _scanner.Scan();
+                    return true;
+                },
+                () =>
+                {
+                    if (_scanner.Current.Kind != TokenKind.Identifier) return false;
+                    nameToken = _scanner.Scan();
+                    return true;
+                });
+
+            if (!parsed)
                 throw new CompilationException($"Expected string or identifier for callobj at position {_scanner.Current.Start}.", _scanner.Current.Start);
+            var name = nameToken.Value;
             return new List<ParameterNode> { new FunctionNameParameterNode { FunctionName = name } };
         }
 
@@ -156,8 +168,9 @@ namespace Magic.Kernel.Compilation
                 return ParseMemoryParametersFromTokens();
             if (_scanner.Current.Kind == TokenKind.Identifier && _scanner.Current.Value.Equals("string", StringComparison.OrdinalIgnoreCase))
             {
-                Expect(TokenKind.Identifier);
-                Expect(TokenKind.Colon);
+                Sequence(
+                    (TokenKind.Identifier, "string"),
+                    (TokenKind.Colon, null));
                 var strTok = Expect(TokenKind.StringLiteral);
                 return new List<ParameterNode> { new StringParameterNode { Name = "string", Value = strTok.Value } };
             }
@@ -187,12 +200,25 @@ namespace Magic.Kernel.Compilation
             SkipOptionalComma();
             if (_scanner!.Current.IsEndOfInput)
                 return parameters;
-            if (_scanner.Current.Kind == TokenKind.StringLiteral)
-                parameters.Add(new FunctionNameParameterNode { Name = "function", FunctionName = _scanner.Scan().Value });
-            else if (_scanner.Current.Kind == TokenKind.Identifier)
-                parameters.Add(new FunctionNameParameterNode { Name = "function", FunctionName = _scanner.Scan().Value });
-            else
+
+            Token functionNameToken = default;
+            var parsedFunctionName = Or(
+                () =>
+                {
+                    if (_scanner.Current.Kind != TokenKind.StringLiteral) return false;
+                    functionNameToken = _scanner.Scan();
+                    return true;
+                },
+                () =>
+                {
+                    if (_scanner.Current.Kind != TokenKind.Identifier) return false;
+                    functionNameToken = _scanner.Scan();
+                    return true;
+                });
+
+            if (!parsedFunctionName)
                 throw new CompilationException($"Expected function name (string or identifier) at position {_scanner.Current.Start}.", _scanner.Current.Start);
+            parameters.Add(new FunctionNameParameterNode { Name = "function", FunctionName = functionNameToken.Value });
 
             SkipOptionalComma();
             while (!_scanner.Current.IsEndOfInput)
@@ -476,7 +502,7 @@ namespace Magic.Kernel.Compilation
         {
             if (_scanner!.Current.Kind == TokenKind.Identifier && _scanner.Current.Value.Equals("indices", StringComparison.OrdinalIgnoreCase))
             {
-                _scanner.Scan();
+                ExpectOneOf("indices");
                 Expect(TokenKind.Colon);
             }
             Expect(TokenKind.LBracket);
@@ -1705,383 +1731,269 @@ namespace Magic.Kernel.Compilation
             return items;
         }
 
+        private static void SkipNewlines(Scanner s)
+        {
+            while (s.Current.Kind == TokenKind.Newline)
+                s.Scan();
+        }
+
+        /// <summary>Вызывать после потребления "{". contentStart — позиция в source сразу после "{". Возвращает подстроку до парной "}", потребляет эту "}".</summary>
+        private static string GetBlockContent(Scanner s, string source, int contentStart)
+        {
+            if (s.Current.IsEndOfInput) return "";
+            var depth = 1;
+            while (true)
+            {
+                var tok = s.Scan();
+                if (tok.Kind == TokenKind.LBrace) depth++;
+                else if (tok.Kind == TokenKind.RBrace)
+                {
+                    depth--;
+                    if (depth == 0)
+                        return source.Substring(contentStart, tok.Start - contentStart);
+                }
+                else if (tok.Kind == TokenKind.EndOfInput)
+                    return source.Substring(contentStart, Math.Min(tok.Start, source.Length) - contentStart);
+            }
+        }
+
+        private static bool IsProgramKeyword(string id) =>
+            id == "@" || string.Equals(id, "AGI", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(id, "program", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(id, "module", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(id, "procedure", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(id, "function", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(id, "entrypoint", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(id, "asm", StringComparison.OrdinalIgnoreCase);
+
+        private bool TryParseAgi(Scanner s, string source, ProgramStructure structure)
+        {
+            if (s.Current.Kind != TokenKind.Identifier || s.Current.Value != "@") return false;
+            s.Scan();
+            if (s.Current.Kind != TokenKind.Identifier || !string.Equals(s.Current.Value, "AGI", StringComparison.OrdinalIgnoreCase)) return false;
+            s.Scan();
+            var versionStart = s.Current.Start;
+            var versionEnd = versionStart;
+            while (!s.Current.IsEndOfInput && s.Current.Kind != TokenKind.Newline)
+            {
+                versionEnd = s.Current.End;
+                s.Scan();
+            }
+            structure.Version = versionEnd > versionStart
+                ? source.Substring(versionStart, versionEnd - versionStart).Trim()
+                : "";
+            if (s.Current.Kind == TokenKind.Newline) s.Scan();
+            structure.IsProgramStructure = true;
+            return true;
+        }
+
+        private bool TryParseProgram(Scanner s, string source, ProgramStructure structure)
+        {
+            if (s.Current.Kind != TokenKind.Identifier || !string.Equals(s.Current.Value, "program", StringComparison.OrdinalIgnoreCase)) return false;
+            s.Scan();
+            var nameStart = s.Current.Start;
+            var nameEnd = nameStart;
+            while (!s.Current.IsEndOfInput && s.Current.Kind != TokenKind.Semicolon && s.Current.Kind != TokenKind.Newline)
+            {
+                nameEnd = s.Current.End;
+                s.Scan();
+            }
+            var name = source.Substring(nameStart, nameEnd - nameStart).Trim();
+            if (s.Current.Kind == TokenKind.Semicolon) s.Scan();
+            SkipNewlines(s);
+            structure.ProgramName = name;
+            structure.IsProgramStructure = true;
+            return true;
+        }
+
+        private bool TryParseModule(Scanner s, string source, ProgramStructure structure)
+        {
+            if (s.Current.Kind != TokenKind.Identifier || !string.Equals(s.Current.Value, "module", StringComparison.OrdinalIgnoreCase)) return false;
+            s.Scan();
+            var nameStart = s.Current.Start;
+            var nameEnd = nameStart;
+            while (!s.Current.IsEndOfInput && s.Current.Kind != TokenKind.Semicolon && s.Current.Kind != TokenKind.Newline)
+            {
+                nameEnd = s.Current.End;
+                s.Scan();
+            }
+            var name = source.Substring(nameStart, nameEnd - nameStart).Trim();
+            if (s.Current.Kind == TokenKind.Semicolon) s.Scan();
+            SkipNewlines(s);
+            structure.Module = name;
+            structure.IsProgramStructure = true;
+            return true;
+        }
+
+        private bool TryParseProcedure(Scanner s, string source, ProgramStructure structure)
+        {
+            if (s.Current.Kind != TokenKind.Identifier || !string.Equals(s.Current.Value, "procedure", StringComparison.OrdinalIgnoreCase)) return false;
+            s.Scan();
+            if (s.Current.Kind != TokenKind.Identifier) return false;
+            var name = s.Current.Value ?? "";
+            s.Scan();
+            SkipNewlines(s);
+            if (s.Current.Kind != TokenKind.LBrace) return false;
+            var openBrace = s.Current;
+            s.Scan(); // consume "{"
+            SkipNewlines(s);
+            if (s.Current.Kind == TokenKind.Identifier && string.Equals(s.Current.Value, "asm", StringComparison.OrdinalIgnoreCase))
+            {
+                s.Scan();
+                if (s.Current.Kind != TokenKind.LBrace) return false;
+                var asmOpen = s.Current;
+                s.Scan();
+                var content = GetBlockContent(s, source, asmOpen.End);
+                var list = SplitAsmInstructions(content);
+                structure.Procedures[name] = list.Select(ParseWithContext).ToList();
+                if (s.Current.Kind == TokenKind.RBrace) s.Scan(); // outer "}" after asm { ... }
+            }
+            else
+            {
+                var content = GetBlockContent(s, source, openBrace.End);
+                var compiled = CompileStatementCode(content);
+                structure.Procedures[name] = compiled.Select(ParseWithContext).ToList();
+            }
+            structure.IsProgramStructure = true;
+            return true;
+        }
+
+        private bool TryParseFunction(Scanner s, string source, ProgramStructure structure)
+        {
+            if (s.Current.Kind != TokenKind.Identifier || !string.Equals(s.Current.Value, "function", StringComparison.OrdinalIgnoreCase)) return false;
+            s.Scan();
+            if (s.Current.Kind != TokenKind.Identifier) return false;
+            var name = s.Current.Value ?? "";
+            s.Scan();
+            SkipNewlines(s);
+            if (s.Current.Kind != TokenKind.LBrace) return false;
+            var openBrace = s.Current;
+            s.Scan();
+            SkipNewlines(s);
+            if (s.Current.Kind == TokenKind.Identifier && string.Equals(s.Current.Value, "asm", StringComparison.OrdinalIgnoreCase))
+            {
+                s.Scan();
+                if (s.Current.Kind != TokenKind.LBrace) return false;
+                var asmOpen = s.Current;
+                s.Scan();
+                var content = GetBlockContent(s, source, asmOpen.End);
+                var list = SplitAsmInstructions(content);
+                structure.Functions[name] = list.Select(ParseWithContext).ToList();
+                if (s.Current.Kind == TokenKind.RBrace) s.Scan(); // outer "}" after asm { ... }
+            }
+            else
+            {
+                var content = GetBlockContent(s, source, openBrace.End);
+                var compiled = CompileStatementCode(content);
+                structure.Functions[name] = compiled.Select(ParseWithContext).ToList();
+            }
+            structure.IsProgramStructure = true;
+            return true;
+        }
+
+        private bool TryParseEntrypoint(Scanner s, string source, ProgramStructure structure)
+        {
+            if (s.Current.Kind != TokenKind.Identifier || !string.Equals(s.Current.Value, "entrypoint", StringComparison.OrdinalIgnoreCase)) return false;
+            s.Scan();
+            SkipNewlines(s);
+            if (s.Current.Kind != TokenKind.LBrace) return false;
+            var openBrace = s.Current;
+            s.Scan();
+            SkipNewlines(s);
+            structure.EntryPoint = new List<InstructionNode>();
+            if (s.Current.Kind == TokenKind.Identifier && string.Equals(s.Current.Value, "asm", StringComparison.OrdinalIgnoreCase))
+            {
+                s.Scan();
+                if (s.Current.Kind != TokenKind.LBrace) return false;
+                var asmOpen = s.Current;
+                s.Scan();
+                var content = GetBlockContent(s, source, asmOpen.End);
+                foreach (var inst in SplitAsmInstructions(content))
+                    structure.EntryPoint.Add(ParseWithContext(inst));
+                if (s.Current.Kind == TokenKind.RBrace) s.Scan(); // outer "}" after asm { ... }
+            }
+            else
+            {
+                var content = GetBlockContent(s, source, openBrace.End);
+                foreach (var inst in CompileStatementCode(content))
+                    structure.EntryPoint.Add(ParseWithContext(inst));
+            }
+            structure.IsProgramStructure = true;
+            return true;
+        }
+
+        private bool TryParseTopLevelCall(Scanner s, ProgramStructure structure)
+        {
+            if (s.Current.Kind != TokenKind.Identifier || IsProgramKeyword(s.Current.Value ?? "")) return false;
+            var name = s.Current.Value ?? "";
+            if (s.Watch(1)?.Kind != TokenKind.Semicolon) return false;
+            s.Scan();
+            s.Scan();
+            structure.EntryPoint ??= new List<InstructionNode>();
+            structure.EntryPoint.Add(Parse("call " + name));
+            structure.IsProgramStructure = true;
+            SkipNewlines(s);
+            return true;
+        }
+
+        private static string ConsumeLineToUnprocessed(Scanner s, string source)
+        {
+            if (s.Current.IsEndOfInput) return "";
+            var start = s.Current.Start;
+            while (!s.Current.IsEndOfInput && s.Current.Kind != TokenKind.Newline)
+                s.Scan();
+            var end = s.Current.IsEndOfInput ? source.Length : s.Current.Start;
+            if (s.Current.Kind == TokenKind.Newline) s.Scan();
+            return source.Substring(start, end - start).Trim();
+        }
+
+        private InstructionNode ParseWithContext(string instructionText)
+        {
+            try
+            {
+                return Parse(instructionText);
+            }
+            catch (CompilationException ex)
+            {
+                throw new CompilationException($"{ex.Message} Instruction: '{instructionText}'.", ex.Position);
+            }
+        }
+
         public ProgramStructure ParseProgram(string sourceCode)
         {
             var structure = new ProgramStructure();
-            var reader = new LineReader(sourceCode ?? "");
-            string? currentProcedure = null;
-            string? currentFunction = null;
-            var inProcedure = false;
-            var inFunction = false;
-            var inEntryPoint = false;
-            var inAsmBlock = false;
-            var asmBraceDepth = 0;
-            var asmOpenLineIndex = -1;
-            var asmBuffer = new System.Text.StringBuilder();
-            var blockBraceDepth = 0; // for procedure/function/entrypoint
-            var statementLines = new List<string>();
-            var unprocessedLines = new List<string>(); // для обратной совместимости
-
-            for (var i = 0; i < reader.Count; i++)
+            var source = sourceCode ?? "";
+            if (string.IsNullOrEmpty(source))
             {
-                var (rawLine, line) = reader.GetLine(i);
-                
-                // Пропускаем пустые строки и комментарии
-                if (string.IsNullOrWhiteSpace(line) || line.StartsWith("//"))
-                    continue;
+                return structure;
+            }
+            var scanner = new Scanner(source);
+            var unprocessedLines = new List<string>();
 
-                // Парсим директиву версии @AGI
-                if (line.StartsWith("@AGI"))
-                {
-                    var versionPart = line.Length > 4 ? line.Substring(4).Trim() : "";
-                    structure.Version = versionPart;
-                    structure.IsProgramStructure = true;
-                    continue;
-                }
+            while (!scanner.Current.IsEndOfInput)
+            {
+                SkipNewlines(scanner);
+                if (scanner.Current.IsEndOfInput) break;
 
-                // Парсим program
-                if (line.StartsWith("program"))
-                {
-                    var programPart = line.Substring(7).Trim().TrimEnd(';');
-                    structure.ProgramName = programPart;
-                    structure.IsProgramStructure = true;
-                    continue;
-                }
+                if (TryParseAgi(scanner, source, structure)) continue;
+                if (TryParseProgram(scanner, source, structure)) continue;
+                if (TryParseModule(scanner, source, structure)) continue;
+                if (TryParseProcedure(scanner, source, structure)) continue;
+                if (TryParseFunction(scanner, source, structure)) continue;
+                if (TryParseEntrypoint(scanner, source, structure)) continue;
+                if (TryParseTopLevelCall(scanner, structure)) continue;
 
-                // Парсим module
-                if (line.StartsWith("module"))
-                {
-                    var modulePart = line.Substring(6).Trim().TrimEnd(';');
-                    structure.Module = modulePart;
-                    structure.IsProgramStructure = true;
-                    continue;
-                }
-
-                // Парсим procedure
-                if (line.StartsWith("procedure"))
-                {
-                    var procPart = line.Substring(9).Trim();
-                    var nameEnd = procPart.IndexOf(' ');
-                    if (nameEnd == -1) nameEnd = procPart.IndexOf('{');
-                    if (nameEnd == -1) nameEnd = procPart.Length;
-                    
-                    currentProcedure = procPart.Substring(0, nameEnd).Trim();
-                    structure.Procedures[currentProcedure] = new List<InstructionNode>();
-                    structure.IsProgramStructure = true;
-                    inProcedure = true;
-                    inAsmBlock = false;
-                    asmBraceDepth = 0;
-                    blockBraceDepth = rawLine.Contains("{") ? 1 : 0;
-                    statementLines.Clear();
-                    if (!line.Contains("asm") || !line.Contains("{"))
-                        continue;
-                }
-
-                // Парсим function
-                if (line.StartsWith("function"))
-                {
-                    var funcPart = line.Substring(8).Trim();
-                    var nameEnd = funcPart.IndexOf(' ');
-                    if (nameEnd == -1) nameEnd = funcPart.IndexOf('{');
-                    if (nameEnd == -1) nameEnd = funcPart.IndexOf('(');
-                    if (nameEnd == -1) nameEnd = funcPart.Length;
-                    
-                    currentFunction = funcPart.Substring(0, nameEnd).Trim();
-                    structure.Functions[currentFunction] = new List<InstructionNode>();
-                    structure.IsProgramStructure = true;
-                    inFunction = true;
-                    inAsmBlock = false;
-                    asmBraceDepth = 0;
-                    blockBraceDepth = rawLine.Contains("{") ? 1 : 0;
-                    statementLines.Clear();
-                    if (!line.Contains("asm") || !line.Contains("{"))
-                        continue;
-                }
-
-                // Парсим entrypoint
-                if (line.StartsWith("entrypoint"))
-                {
-                    structure.EntryPoint = new List<InstructionNode>();
-                    structure.IsProgramStructure = true;
-                    inEntryPoint = true;
-                    inAsmBlock = false;
-                    asmBraceDepth = 0;
-                    blockBraceDepth = rawLine.Contains("{") ? 1 : 0;
-                    statementLines.Clear();
-                    if (!line.Contains("asm") || !line.Contains("{"))
-                        continue;
-                }
-
-                // Проверяем начало asm блока
-                if (!inAsmBlock && line.Contains("asm") && line.Contains("{"))
-                {
-                    asmOpenLineIndex = i;
-                    asmBuffer.Clear();
-
-                    // Берем все после '{' следующей за "asm", до парной '}' (не включая хвост " } }")
-                    var asmIdx = rawLine.IndexOf("asm", StringComparison.OrdinalIgnoreCase);
-                    var bracePos = asmIdx >= 0 ? rawLine.IndexOf('{', asmIdx) : rawLine.IndexOf('{');
-                    var closedOnSameLine = false;
-                    if (bracePos >= 0 && bracePos + 1 < rawLine.Length)
-                    {
-                        var depth = 1;
-                        var contentEnd = rawLine.Length;
-                        for (var j = bracePos + 1; j < rawLine.Length; j++)
-                        {
-                            var c = rawLine[j];
-                            if (c == '{') depth++;
-                            else if (c == '}')
-                            {
-                                depth--;
-                                if (depth == 0) { contentEnd = j; closedOnSameLine = true; break; }
-                            }
-                        }
-                        asmBuffer.AppendLine(rawLine.Substring(bracePos + 1, contentEnd - (bracePos + 1)));
-                    }
-
-                    if (closedOnSameLine)
-                    {
-                        var asmText = asmBuffer.ToString();
-                        var instructions = SplitAsmInstructions(asmText);
-                        foreach (var instruction in instructions)
-                        {
-                            var astNode = Parse(instruction);
-                            if (inProcedure && currentProcedure != null)
-                                structure.Procedures[currentProcedure].Add(astNode);
-                            else if (inFunction && currentFunction != null)
-                                structure.Functions[currentFunction].Add(astNode);
-                            else if (inEntryPoint)
-                                structure.EntryPoint!.Add(astNode);
-                        }
-                        inProcedure = false;
-                        currentProcedure = null;
-                        inEntryPoint = false;
-                        inFunction = false;
-                        currentFunction = null;
-                    }
-                    else
-                    {
-                        inAsmBlock = true;
-                        asmBraceDepth = 1;
-                    }
-                    continue;
-                }
-
-                // Statements inside procedure/function/entrypoint (outside asm)
-                if ((inProcedure || inFunction || inEntryPoint) && !inAsmBlock)
-                {
-                    // add current line to statement buffer unless it is a lone brace
-                    if (line is not "{" and not "}")
-                    {
-                        statementLines.Add(rawLine);
-                    }
-
-                    // update block brace depth (ignore braces in strings, stop at // comments)
-                    var inStr = false;
-                    var esc = false;
-                    for (var j = 0; j < rawLine.Length; j++)
-                    {
-                        var ch = rawLine[j];
-                        if (inStr)
-                        {
-                            if (esc) { esc = false; continue; }
-                            if (ch == '\\') { esc = true; continue; }
-                            if (ch == '"') inStr = false;
-                            continue;
-                        }
-                        if (ch == '/' && j + 1 < rawLine.Length && rawLine[j + 1] == '/')
-                        {
-                            break;
-                        }
-                        if (ch == '"') { inStr = true; continue; }
-                        if (ch == '{') blockBraceDepth++;
-                        if (ch == '}') blockBraceDepth--;
-                    }
-
-                    if (blockBraceDepth <= 0)
-                    {
-                        var statementText = string.Join("\n", statementLines);
-                        var compiledAsm = CompileStatementCode(statementText);
-
-                        foreach (var instruction in compiledAsm)
-                        {
-                            var astNode = Parse(instruction);
-                            if (inProcedure && currentProcedure != null)
-                                structure.Procedures[currentProcedure].Add(astNode);
-                            else if (inFunction && currentFunction != null)
-                                structure.Functions[currentFunction].Add(astNode);
-                            else if (inEntryPoint)
-                                structure.EntryPoint!.Add(astNode);
-                        }
-
-                        statementLines.Clear();
-                        blockBraceDepth = 0;
-
-                        if (inProcedure) { inProcedure = false; currentProcedure = null; }
-                        if (inFunction) { inFunction = false; currentFunction = null; }
-                        if (inEntryPoint) { inEntryPoint = false;                         }
-                    }
-                    continue;
-                }
-
-                // Подсчитываем фигурные скобки в asm блоке
-                if (inAsmBlock)
-                {
-                    // Накопление текста asm-блока построчно, но закрывающую '}' для asm не включаем.
-                    // При этом учитываем вложенные { } (inline shape literals и т.п.) и строки.
-                    var scan = rawLine;
-                    var inString = false;
-                    var escaped = false;
-                    var lineEnd = scan.Length;
-
-                    for (var j = 0; j < scan.Length; j++)
-                    {
-                        var ch = scan[j];
-                        if (inString)
-                        {
-                            if (escaped)
-                            {
-                                escaped = false;
-                                continue;
-                            }
-                            if (ch == '\\')
-                            {
-                                escaped = true;
-                                continue;
-                            }
-                            if (ch == '"')
-                            {
-                                inString = false;
-                            }
-                            continue;
-                        }
-
-                        // вне строк — поддерживаем однострочные комментарии //
-                        if (ch == '/' && j + 1 < scan.Length && scan[j + 1] == '/')
-                        {
-                            // игнорируем остаток строки
-                            break;
-                        }
-
-                        if (ch == '"')
-                        {
-                            inString = true;
-                            continue;
-                        }
-
-                        if (ch == '{')
-                        {
-                            asmBraceDepth++;
-                            continue;
-                        }
-
-                        if (ch == '}')
-                        {
-                            asmBraceDepth--;
-                            if (asmBraceDepth == 0)
-                            {
-                                // это закрывающая скобка asm-блока — не включаем ее
-                                lineEnd = j;
-                                break;
-                            }
-                            continue;
-                        }
-                    }
-
-                    // Добавляем содержимое asm на этой строке: на закрывающей строке (lineEnd < length) — только после последней '{'; иначе вся строка (continuation)
-                    if (lineEnd > 0 && i != asmOpenLineIndex)
-                    {
-                        if (lineEnd < scan.Length)
-                        {
-                            var lastBrace = scan.LastIndexOf('{', lineEnd - 1);
-                            if (lastBrace >= 0)
-                                asmBuffer.AppendLine(scan.Substring(lastBrace + 1, lineEnd - lastBrace - 1));
-                        }
-                        else
-                            asmBuffer.AppendLine(scan.Substring(0, lineEnd));
-                    }
-
-                    // Если asm блок закрыт — сплитим на инструкции по top-level ';' и сохраняем
-                    if (asmBraceDepth == 0)
-                    {
-                        inAsmBlock = false;
-
-                        var asmText = asmBuffer.ToString();
-                        var instructions = SplitAsmInstructions(asmText);
-
-                        foreach (var instruction in instructions)
-                        {
-                            var astNode = Parse(instruction);
-                            if (inProcedure && currentProcedure != null)
-                            {
-                                structure.Procedures[currentProcedure].Add(astNode);
-                            }
-                            else if (inFunction && currentFunction != null)
-                            {
-                                structure.Functions[currentFunction].Add(astNode);
-                            }
-                            else if (inEntryPoint)
-                            {
-                                structure.EntryPoint!.Add(astNode);
-                            }
-                        }
-                        continue;
-                    }
-                }
-
-                // Top-level high-level call like `Main;` (implicit entrypoint)
-                if (!inProcedure && !inFunction && !inEntryPoint && !inAsmBlock)
-                {
-                    var stmt = line.Trim().TrimEnd(';');
-                    if (System.Text.RegularExpressions.Regex.IsMatch(stmt, @"^[A-Za-z_]\w*$"))
-                    {
-                        structure.EntryPoint ??= new List<InstructionNode>();
-                        var callInstruction = Parse($"call {stmt}");
-                        structure.EntryPoint.Add(callInstruction);
-                        structure.IsProgramStructure = true;
-                        continue;
-                    }
-                    
-                    // Если нет структуры программы и строка не была обработана - добавляем в необработанные
-                    if (!structure.IsProgramStructure)
-                    {
-                        unprocessedLines.Add(line);
-                    }
-                }
+                var line = ConsumeLineToUnprocessed(scanner, source);
+                if (!string.IsNullOrWhiteSpace(line) && !structure.IsProgramStructure)
+                    unprocessedLines.Add(line);
             }
 
-            // Если структуры программы нет, но есть необработанные строки - добавляем их в EntryPoint
             if (!structure.IsProgramStructure)
             {
-                // Если не было необработанных строк, собираем все строки которые не пустые и не комментарии
                 if (unprocessedLines.Count == 0)
-                {
-                    for (var j = 0; j < reader.Count; j++)
-                    {
-                        var (_, trimmedLine) = reader.GetLine(j);
-                        if (!string.IsNullOrWhiteSpace(trimmedLine) && !trimmedLine.StartsWith("//"))
-                        {
-                            var firstWord = trimmedLine.Split(new[] { ' ', '\t', '{', '}' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
-                            if (firstWord != null && 
-                                firstWord != "@AGI" && 
-                                firstWord != "program" && 
-                                firstWord != "module" && 
-                                firstWord != "procedure" && 
-                                firstWord != "function" && 
-                                firstWord != "entrypoint" &&
-                                trimmedLine != "{" && 
-                                trimmedLine != "}")
-                            {
-                                unprocessedLines.Add(trimmedLine);
-                            }
-                        }
-                    }
-                }
-                
-                if (unprocessedLines.Count > 0)
-                {
+                    structure.EntryPoint = ParseAsInstructionSet(source);
+                else
                     structure.EntryPoint = unprocessedLines.Select(l => Parse(l)).ToList();
-                }
             }
 
             return structure;
@@ -2451,23 +2363,12 @@ namespace Magic.Kernel.Compilation
                     continue;
                 }
 
-                // Вызов метода: stream1.open("stream1"); → stream_open(path) или callobj "open"
+                // Вызов метода: stream1.open("stream1"); → push [obj], push path, push 1, callobj "open"
                 var methodMatch = System.Text.RegularExpressions.Regex.Match(line.Trim(), @"^(\w+)\.(\w+)\(([^)]*)\)\s*;?$");
                 if (methodMatch.Success && vars.TryGetValue(methodMatch.Groups[1].Value, out var objVar))
                 {
                     var method = methodMatch.Groups[2].Value;
                     var arg = methodMatch.Groups[3].Value.Trim();
-                    if (objVar.Kind == "stream" && string.Equals(method, "open", StringComparison.OrdinalIgnoreCase))
-                    {
-                        if (arg.Length >= 2 && arg.StartsWith("\"") && arg.EndsWith("\""))
-                            asmInstructions.Add($"push string: {arg}");
-                        else
-                            asmInstructions.Add($"push string: \"{arg.Replace("\"", "\\\"")}\"");
-                        asmInstructions.Add("push 1");
-                        asmInstructions.Add("call stream_open");
-                        asmInstructions.Add($"pop [{objVar.Index}]");
-                        continue;
-                    }
                     asmInstructions.Add($"push [{objVar.Index}]");
                     if (arg.Length >= 2 && arg.StartsWith("\"") && arg.EndsWith("\""))
                         asmInstructions.Add($"push string: {arg}");
@@ -2810,15 +2711,14 @@ namespace Magic.Kernel.Compilation
                 }
             }
 
-            // var data = await stream1; → push [stream], push 1, call stream_await, pop [data]
+            // var data = await stream1; → push [stream], awaitobj, pop [data]
             var awaitMatch = System.Text.RegularExpressions.Regex.Match(expression, @"^await\s+(\w+)\s*$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             if (awaitMatch.Success && vars.TryGetValue(awaitMatch.Groups[1].Value, out var streamVar) && streamVar.Kind == "stream")
             {
                 var dataSlot = memorySlotCounter++;
                 vars[varName] = ("memory", dataSlot);
                 asm.Add($"push [{streamVar.Index}]");
-                asm.Add("push 1");
-                asm.Add("call stream_await");
+                asm.Add("awaitobj");
                 asm.Add($"pop [{dataSlot}]");
                 return asm;
             }

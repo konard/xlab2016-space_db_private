@@ -55,6 +55,8 @@ namespace Magic.Kernel.Compilation
             SkipWhitespace();
             while (_index < _source.Length)
             {
+                SkipLineComment();
+                if (_index >= _source.Length) break;
                 var tok = ScanOne();
                 _tokens.Add(tok);
                 if (tok.Kind == TokenKind.EndOfInput)
@@ -65,9 +67,26 @@ namespace Magic.Kernel.Compilation
             _position = 0;
         }
 
+        private void SkipLineComment()
+        {
+            while (_index + 1 < _source.Length && _source[_index] == '/' && _source[_index + 1] == '/')
+            {
+                _index += 2;
+                while (_index < _source.Length && _source[_index] != '\n' && _source[_index] != '\r')
+                    _index++;
+                if (_index < _source.Length)
+                {
+                    _index++;
+                    if (_index < _source.Length && _source[_index - 1] == '\r' && _source[_index] == '\n')
+                        _index++;
+                }
+            }
+        }
+
         private void SkipWhitespace()
         {
-            while (_index < _source.Length && char.IsWhiteSpace(_source[_index]))
+            // Пробелы и табы; переводы строк не пропускаем — они дают токен Newline
+            while (_index < _source.Length && (_source[_index] == ' ' || _source[_index] == '\t'))
                 _index++;
         }
 
@@ -78,6 +97,15 @@ namespace Magic.Kernel.Compilation
 
             var start = _index;
             var ch = _source[_index];
+
+            // Перевод строки (для итерации по строкам в ParseProgram)
+            if (ch == '\r' || ch == '\n')
+            {
+                _index++;
+                if (ch == '\r' && _index < _source.Length && _source[_index] == '\n')
+                    _index++;
+                return new Token(TokenKind.Newline, "\n", start, _index);
+            }
 
             // Односимвольные разделители
             if (ch == ':') { _index++; return new Token(TokenKind.Colon, ":", start, _index); }

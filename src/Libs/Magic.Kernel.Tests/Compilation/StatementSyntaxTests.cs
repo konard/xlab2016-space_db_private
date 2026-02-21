@@ -494,9 +494,9 @@ entrypoint {
             var main = result.Result.Procedures["Main"];
             main.Body.Should().NotBeEmpty();
 
+            main.Body.Should().Contain(c => c.Opcode == Opcodes.CallObj && c.Operand1 as string == "open");
+            main.Body.Should().Contain(c => c.Opcode == Opcodes.AwaitObj);
             var calls = main.Body.Where(c => c.Opcode == Opcodes.Call).Select(c => (CallInfo)c.Operand1!).ToList();
-            calls.Select(c => c.FunctionName).Should().Contain("stream_open");
-            calls.Select(c => c.FunctionName).Should().Contain("stream_await");
             calls.Select(c => c.FunctionName).Should().Contain("compile");
             calls.Select(c => c.FunctionName).Should().Contain("print");
 

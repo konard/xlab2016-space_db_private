@@ -5,11 +5,11 @@ using Xunit;
 
 namespace Magic.Kernel.Tests.Compilation
 {
-    public class HighLevelSyntaxTests
+    public class StatementSyntaxTests
     {
         private readonly Compiler _compiler;
 
-        public HighLevelSyntaxTests()
+        public StatementSyntaxTests()
         {
             _compiler = new Compiler();
         }
@@ -327,7 +327,7 @@ entrypoint {
         }
 
         [Fact]
-        public async Task CompileAsync_WithFullHighLevelProgram_ShouldCompileAllStatements()
+        public async Task CompileAsync_WithFullStatementProgram_ShouldCompileAllStatements()
         {
             // Arrange - полный пример из документации
             var source = @"@AGI 0.0.1;
@@ -388,14 +388,14 @@ entrypoint {
         }
 
         [Fact]
-        public async Task CompileAsync_WithMixedHighLevelAndAsm_ShouldCompileBoth()
+        public async Task CompileAsync_WithMixedStatementAndAsm_ShouldCompileBoth()
         {
             // Arrange
             var source = @"@AGI 0.0.1
 program Test;
 module Test/Test;
 
-procedure HighLevel {
+procedure StatementProc {
 	var
 		v1: vertex = {DIM:[1, 0, 0, 0], W:0.5, DATA:""V1""};
 }
@@ -408,7 +408,7 @@ procedure AsmCode {
 
 entrypoint {
 	asm {
-		call HighLevel;
+		call StatementProc;
 		call AsmCode;
 	}
 }";
@@ -418,12 +418,12 @@ entrypoint {
 
             // Assert
             result.Success.Should().BeTrue(result.ErrorMessage);
-            result.Result!.Procedures.Should().ContainKey("HighLevel");
+            result.Result!.Procedures.Should().ContainKey("StatementProc");
             result.Result.Procedures.Should().ContainKey("AsmCode");
             
-            var highLevel = result.Result.Procedures["HighLevel"];
-            highLevel.Body.Should().HaveCount(1);
-            highLevel.Body[0].Opcode.Should().Be(Opcodes.AddVertex);
+            var statementProc = result.Result.Procedures["StatementProc"];
+            statementProc.Body.Should().HaveCount(1);
+            statementProc.Body[0].Opcode.Should().Be(Opcodes.AddVertex);
             
             var asmCode = result.Result.Procedures["AsmCode"];
             asmCode.Body.Should().HaveCount(1);

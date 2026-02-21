@@ -5,7 +5,7 @@ using Xunit;
 
 namespace Magic.Kernel.Tests.Compilation
 {
-    public class HighLevelVaultAndStreamTests
+    public class VaultAndStreamTests
     {
         [Fact]
         public void ParseProgram_WithVaultDeclaration_ShouldProduceNoAsm()

@@ -1287,7 +1287,7 @@ namespace Magic.Kernel.Compilation
             var asmBraceDepth = 0;
             var asmBuffer = new System.Text.StringBuilder();
             var blockBraceDepth = 0; // for procedure/function/entrypoint
-            var highLevelLines = new List<string>();
+            var statementLines = new List<string>();
             var unprocessedLines = new List<string>(); // для обратной совместимости
 
             while (i < lines.Length)
@@ -1347,7 +1347,7 @@ namespace Magic.Kernel.Compilation
                     inAsmBlock = false;
                     asmBraceDepth = 0;
                     blockBraceDepth = rawLine.Contains("{") ? 1 : 0;
-                    highLevelLines.Clear();
+                    statementLines.Clear();
                     
                     i++;
                     continue;
@@ -1369,7 +1369,7 @@ namespace Magic.Kernel.Compilation
                     inAsmBlock = false;
                     asmBraceDepth = 0;
                     blockBraceDepth = rawLine.Contains("{") ? 1 : 0;
-                    highLevelLines.Clear();
+                    statementLines.Clear();
                     
                     i++;
                     continue;
@@ -1384,7 +1384,7 @@ namespace Magic.Kernel.Compilation
                     inAsmBlock = false;
                     asmBraceDepth = 0;
                     blockBraceDepth = rawLine.Contains("{") ? 1 : 0;
-                    highLevelLines.Clear();
+                    statementLines.Clear();
                     
                     i++;
                     continue;
@@ -1407,13 +1407,13 @@ namespace Magic.Kernel.Compilation
                     continue;
                 }
 
-                // High-level statements inside procedure/function/entrypoint (outside asm)
+                // Statements inside procedure/function/entrypoint (outside asm)
                 if ((inProcedure || inFunction || inEntryPoint) && !inAsmBlock)
                 {
-                    // add current line to high-level buffer unless it is a lone brace
+                    // add current line to statement buffer unless it is a lone brace
                     if (line is not "{" and not "}")
                     {
-                        highLevelLines.Add(rawLine);
+                        statementLines.Add(rawLine);
                     }
 
                     // update block brace depth (ignore braces in strings, stop at // comments)
@@ -1440,8 +1440,8 @@ namespace Magic.Kernel.Compilation
 
                     if (blockBraceDepth <= 0)
                     {
-                        var hlText = string.Join("\n", highLevelLines);
-                        var compiledAsm = CompileHighLevelCode(hlText);
+                        var statementText = string.Join("\n", statementLines);
+                        var compiledAsm = CompileStatementCode(statementText);
 
                         foreach (var instruction in compiledAsm)
                         {
@@ -1454,7 +1454,7 @@ namespace Magic.Kernel.Compilation
                                 structure.EntryPoint!.Add(astNode);
                         }
 
-                        highLevelLines.Clear();
+                        statementLines.Clear();
                         blockBraceDepth = 0;
 
                         if (inProcedure) { inProcedure = false; currentProcedure = null; }
@@ -1842,7 +1842,7 @@ namespace Magic.Kernel.Compilation
             return result;
         }
 
-        private string CollectHighLevelCode(string[] lines, ref int startIndex, bool inProcedure, bool inFunction, bool inEntryPoint)
+        private string CollectStatementCode(string[] lines, ref int startIndex, bool inProcedure, bool inFunction, bool inEntryPoint)
         {
             var code = new System.Text.StringBuilder();
             var braceDepth = 0;
@@ -1894,10 +1894,10 @@ namespace Magic.Kernel.Compilation
             return code.ToString();
         }
 
-        private List<string> CompileHighLevelCode(string highLevelCode)
+        private List<string> CompileStatementCode(string statementCode)
         {
             var asmInstructions = new List<string>();
-            var lines = highLevelCode.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            var lines = statementCode.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
             // varName -> (kind,index) where kind in: vertex|relation|shape|memory|stream
             var vars = new Dictionary<string, (string Kind, int Index)>(StringComparer.Ordinal);
             var vertexCounter = 1;

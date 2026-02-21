@@ -1,6 +1,6 @@
 namespace Magic.Kernel.Compilation.Ast
 {
-    public class HighLevelStatementNode : AstNode
+    public class StatementNode : AstNode
     {
         public StatementType Type { get; set; }
         public string? VariableName { get; set; }

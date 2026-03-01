@@ -4,15 +4,16 @@ program telegram_to_db;
 system samples;
 module telegram;
 
-Messages<> : table {
-	Id: bigint;
+Message<> : table {
+	Id: bigint primary key identity;
 	Time: datetime;
-	User: nvarchar(250);
-	Message: json
+	ChatId: nvarchar(250)?;
+	Username: nvarchar(250)?;
+	Message: json?;
 }
 
 Db> : database {
-	Messages<>;
+	Message<>;
 }
 
 procedure Main {
@@ -29,15 +30,20 @@ procedure Main {
 	for streamwait by delta (stream1, delta, aggregate) {
 		var data := delta.data;
 		// !: accessor to anonymous type
-		var message := data!.message;
-		var user := data!.user;
+		var chatId := data!.chatId;
+		var text := data!.text;
+		var user := data!.username;
 		var time = :time;
 
-		db1.Messages<> += {
+		print(chatId, text, user, time);
+		var message = {
 			Time: time,
-			User: user,
-			Message: message
+			ChatId: chatId,
+			Username: user,
+			Message: text
 		};
+
+		db1.Message<> += message;
 		// save data
 		await db1;
 
@@ -58,7 +64,5 @@ procedure Main {
 }
 
 entrypoint {
-	asm {
-		call Main;
-	}
+	call Main;
 }

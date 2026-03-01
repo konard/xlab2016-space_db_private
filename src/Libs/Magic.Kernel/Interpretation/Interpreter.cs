@@ -252,7 +252,8 @@ namespace Magic.Kernel.Interpretation
             }
 
             // 2) Fallback: system functions (backward compatible behavior)
-            var systemFunctions = new SystemFunctions(_configuration, Stack, Memory);
+            var vaultReader = _configuration?.VaultReader ?? new EnvironmentVaultReader();
+            var systemFunctions = new SystemFunctions(_configuration, Stack, Memory, vaultReader);
             var handled = await systemFunctions.ExecuteAsync(callInfo);
 
             if (!handled)
@@ -266,7 +267,8 @@ namespace Magic.Kernel.Interpretation
                 throw new InvalidOperationException($"SysCall command expects CallInfo as Operand1, but got {command.Operand1?.GetType().Name ?? "null"}");
             }
 
-            var systemFunctions = new SystemFunctions(_configuration, Stack, Memory);
+            var vaultReader = _configuration?.VaultReader ?? new EnvironmentVaultReader();
+            var systemFunctions = new SystemFunctions(_configuration, Stack, Memory, vaultReader);
             var handled = await systemFunctions.ExecuteAsync(callInfo);
 
             if (!handled)

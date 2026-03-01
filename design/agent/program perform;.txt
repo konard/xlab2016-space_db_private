@@ -1,0 +1,74 @@
+program perform;
+
+function agent_inference(task: Task) {
+	var infer = streamwait print(type: "infer", data: task, instruction: #"Perform given task: {task}";
+	return infer;
+}
+
+Task: structure* {
+	Data: string;
+	Instruction: string;
+}
+
+Tasks: structure*<list<Task>>;
+
+Queue: structure*<queue<limit: 8>>;
+
+procedure Main() {
+	var agents = [];
+	
+	var task: Task = streamwait read();
+	
+	var tasks: Tasks = await print(type: "infer", data: task, 
+instruction: #"Plan and split {task} to subtasks", output: Tasks);
+
+	var queue: Queue;
+	
+	for streamwait by record (tasks, task) {
+		await queue += task;
+		for streamwait by record (queue, enqueuedTask) {
+			var agentResult = streamwait agent_inference(enqueuedTask);
+			streamwait print(agentResult);
+		}
+	}
+}
+
+program agent;
+use perform;
+
+procedure Main() {
+	var <task: Task, instruction: string> = streamwait read();
+	var result = await print(type: "infer", device: "agent", control: "infer_control");
+	print(result);
+	streamwait print(result);
+}
+
+program main;
+use perform;
+use agent;
+
+procedure Main() {
+	var task: Task := { 
+		Data: "Sample task",
+		Instruction: #"Peform given task: #DATA"
+	};
+	var perform := stream<program<perform>>;
+	var agent := stream<program<agent>>;
+	var agent_inference_device := function<agent_inference> => agent;
+
+	streamwait write(perform, task);
+	for streamwait by delta (perform, delta1) {
+		var data := delta1.data;
+		streamwait print(data: #"Performed task: {data}");
+	}
+}
+
+configuration agent;
+
+var device := device<inference, gpt5>;
+var control := control<mcp>;
+control.add("tasking");
+control.add("skills");
+device.control(control);
+
+register(device, "agent");

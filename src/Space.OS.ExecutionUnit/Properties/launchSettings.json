@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "Space.OS.ExecutionUnit": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "applicationUrl": "http://localhost:5020",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    }
+  }
+}

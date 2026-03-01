@@ -26,6 +26,22 @@ namespace Magic.Kernel.Interpretation
         }
     }
 
+    /// <summary>Vault reader from an in-memory dictionary (e.g. for library usage).</summary>
+    public sealed class DictionaryVaultReader : IVaultReader
+    {
+        private readonly IReadOnlyDictionary<string, string?> _data;
+
+        public DictionaryVaultReader(IReadOnlyDictionary<string, string?> data)
+        {
+            _data = data ?? new Dictionary<string, string?>();
+        }
+
+        public string? Read(string key)
+        {
+            return _data.TryGetValue(key, out var v) ? v : null;
+        }
+    }
+
     public class SystemFunctions
     {
         private readonly KernelConfiguration? _configuration;

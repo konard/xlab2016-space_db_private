@@ -91,6 +91,9 @@ namespace Magic.Kernel.Compilation
                 var procedure = new Processor.Procedure { Name = proc.Key };
                 foreach (var instructionNode in LowerToInstructions(proc.Value))
                     AddAnalyzedCommand(procedure.Body, instructionNode);
+                // Явный ret в конце процедуры (для корректного asm-дампа и локальных подпрограмм).
+                if (procedure.Body.Count == 0 || procedure.Body[procedure.Body.Count - 1].Opcode != Opcodes.Ret)
+                    procedure.Body.Add(_assembler.Emit(Opcodes.Ret, null));
                 result.Procedures[proc.Key] = procedure;
             }
             foreach (var func in programStructure.Functions)
@@ -98,6 +101,9 @@ namespace Magic.Kernel.Compilation
                 var function = new Processor.Function { Name = func.Key };
                 foreach (var instructionNode in LowerToInstructions(func.Value))
                     AddAnalyzedCommand(function.Body, instructionNode);
+                // Явный ret в конце функции.
+                if (function.Body.Count == 0 || function.Body[function.Body.Count - 1].Opcode != Opcodes.Ret)
+                    function.Body.Add(_assembler.Emit(Opcodes.Ret, null));
                 result.Functions[func.Key] = function;
             }
             return result;

@@ -56,7 +56,6 @@ procedure Main {
 				token: token,
 				file: photo
 			});
-			debug;
 			var photoData := streamwait stream2;
 			message.Photo = {
 				data: photoData

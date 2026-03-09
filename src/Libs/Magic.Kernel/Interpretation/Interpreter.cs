@@ -285,6 +285,15 @@ namespace Magic.Kernel.Interpretation
                 }
             }
 
+            // 1.5) Локальная подпрограмма по label в текущем блоке (для streamwait-loop делегатов и прочих локальных "функций").
+            if (_currentBlock != null && !string.IsNullOrEmpty(callInfo.FunctionName) &&
+                _currentLabelOffsets.TryGetValue(callInfo.FunctionName, out _))
+            {
+                _callStack.Push(new CallFrame { Block = _currentBlock, ReturnIp = instructionPointer, Name = callInfo.FunctionName });
+                instructionPointer = ResolveLabelOffset(callInfo.FunctionName);
+                return;
+            }
+
             // 2) Fallback: system functions (backward compatible behavior)
             var vaultReader = _configuration?.VaultReader ?? new EnvironmentVaultReader();
             var systemFunctions = new SystemFunctions(_configuration, Stack, Memory, vaultReader);

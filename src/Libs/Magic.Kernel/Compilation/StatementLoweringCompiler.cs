@@ -450,6 +450,7 @@ namespace Magic.Kernel.Compilation
             var loopCounter = ++streamLoopCounter;
             var loopStartLabel = $"streamwait_loop_{loopCounter}";
             var loopEndLabel = $"streamwait_loop_{loopCounter}_end";
+            var loopBodyLabel = $"streamwait_loop_{loopCounter}_delta";
 
             var endSlot = memorySlotCounter++;
             var deltaSlot = memorySlotCounter++;
@@ -469,9 +470,12 @@ namespace Magic.Kernel.Compilation
 
             var bodyLines = SplitStatementLines(bodyText);
             var bodyInstructions = CompileStatementLines(bodyLines, vars, ref vertexCounter, ref relationCounter, ref shapeCounter, ref memorySlotCounter, ref streamLoopCounter);
-            instructions.AddRange(bodyInstructions);
-
+            // Оборачиваем тело цикла в локальную "функцию": label + ret, вызываем через call.
+            instructions.Add(CreateCallInstruction(loopBodyLabel));
             instructions.Add(CreateJumpInstruction(loopStartLabel));
+            instructions.Add(CreateLabelInstruction(loopBodyLabel));
+            instructions.AddRange(bodyInstructions);
+            instructions.Add(new InstructionNode { Opcode = "ret" });
             instructions.Add(CreateLabelInstruction(loopEndLabel));
             return true;
         }

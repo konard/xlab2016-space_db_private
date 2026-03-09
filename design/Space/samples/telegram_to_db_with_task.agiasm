@@ -159,6 +159,9 @@ pop [13]
 pop [14]
 cmp [12], 1
 je streamwait_loop_1_end
+call streamwait_loop_1_delta
+jmp streamwait_loop_1
+label streamwait_loop_1_delta
 push [13]
 push string: "data"
 getobj
@@ -294,5 +297,6 @@ push string: "print"
 push [23]
 push 1
 streamwait
-jmp streamwait_loop_1
+ret
 label streamwait_loop_1_end
+ret

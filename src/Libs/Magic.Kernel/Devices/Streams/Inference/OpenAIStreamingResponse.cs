@@ -15,9 +15,7 @@ namespace Magic.Kernel.Devices.Streams.Inference
         private readonly string _apiToken;
         private readonly string _apiBase;
         private readonly string _model;
-        private readonly List<object?> _history;
-        private readonly string? _systemPrompt;
-        private readonly object? _payload;
+        private readonly Magic.Drivers.Inference.OpenAI.OpenAIInferenceRequest _request;
 
         private readonly ConcurrentQueue<string> _deltaQueue = new ConcurrentQueue<string>();
         private readonly StringBuilder _aggregate = new StringBuilder();
@@ -28,16 +26,12 @@ namespace Magic.Kernel.Devices.Streams.Inference
             string apiToken,
             string apiBase,
             string model,
-            List<object?> history,
-            string? systemPrompt,
-            object? payload)
+            Magic.Drivers.Inference.OpenAI.OpenAIInferenceRequest request)
         {
             _apiToken = apiToken;
             _apiBase = apiBase;
             _model = model;
-            _history = history;
-            _systemPrompt = systemPrompt;
-            _payload = payload;
+            _request = request;
         }
 
         public override Task<DeviceOperationResult> OpenAsync()
@@ -50,9 +44,7 @@ namespace Magic.Kernel.Devices.Streams.Inference
         {
             var client = new Magic.Drivers.Inference.OpenAI.OpenAIHttpClient(_apiToken, _apiBase, _model);
             await client.SendStreamingAsync(
-                _payload,
-                _history,
-                _systemPrompt,
+                _request,
                 delta => EnqueueDelta(delta),
                 () => FinishStream()).ConfigureAwait(false);
         }

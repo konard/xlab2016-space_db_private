@@ -14,7 +14,7 @@ namespace Magic.Kernel.Devices.Streams.Inference
         public string ApiBase { get; set; } = "https://api.openai.com";
 
         /// <summary>Model name to use for completions.</summary>
-        public string Model { get; set; } = "gpt-4o";
+        public string Model { get; set; } = "gpt-4o-mini";
 
         protected override IStreamDevice CreateDriver(string apiToken)
         {
@@ -23,12 +23,49 @@ namespace Magic.Kernel.Devices.Streams.Inference
 
         protected override async Task<object?> WriteRequestAsync(object? payload)
         {
-            var responseDevice = new OpenAIStreamingResponse(Token, ApiBase, Model, History, SystemPrompt, payload);
+            var request = BuildRequest(payload);
+            var responseDevice = new OpenAIStreamingResponse(Token, ApiBase, Model, request);
             // Start streaming in the background via the OpenAI driver.
             var driver = new OpenAIDriver(Token, ApiBase, Model);
             await driver.OpenAsync().ConfigureAwait(false);
-            _ = driver.SendStreamingRequestAsync(payload, History, SystemPrompt, responseDevice);
+            _ = driver.SendStreamingRequestAsync(request, responseDevice);
             return responseDevice;
+        }
+
+        /// <summary>Converts the incoming <paramref name="payload"/> into a typed <see cref="Magic.Drivers.Inference.OpenAI.OpenAIInferenceRequest"/>.
+        /// Accepts either an already-typed instance or an untyped dictionary for backwards compatibility.</summary>
+        private Magic.Drivers.Inference.OpenAI.OpenAIInferenceRequest BuildRequest(object? payload)
+        {
+            if (payload is Magic.Drivers.Inference.OpenAI.OpenAIInferenceRequest typed)
+                return typed;
+
+            var req = new Magic.Drivers.Inference.OpenAI.OpenAIInferenceRequest
+            {
+                History = History,
+                System = SystemPrompt,
+            };
+
+            if (payload is IDictionary<string, object?> dict)
+            {
+                dict.TryGetValue("data", out var data);
+                dict.TryGetValue("system", out var sys);
+                dict.TryGetValue("instruction", out var instr);
+                dict.TryGetValue("tools", out var tools);
+                dict.TryGetValue("skills", out var skills);
+
+                req.Data = data;
+                if (sys is string sysStr && !string.IsNullOrEmpty(sysStr))
+                    req.System = sysStr;
+                req.Instruction = instr?.ToString();
+                req.Tools = tools;
+                req.Skills = skills;
+            }
+            else if (payload is string payloadStr)
+            {
+                req.Instruction = payloadStr;
+            }
+
+            return req;
         }
     }
 }

@@ -5,9 +5,96 @@ using Xunit;
 
 namespace Magic.Kernel.Tests.Compilation
 {
-    /// <summary>Unit tests for the XML-structured prompt building in <see cref="OpenAIHttpClient"/>.</summary>
+    /// <summary>Unit tests for the XML-structured prompt building in <see cref="OpenAIHttpClient"/>
+    /// and the typed <see cref="OpenAIInferenceRequest"/> model.</summary>
     public class OpenAIPromptFormattingTests
     {
+        // ──────────────────────────────────────────────────────────────────
+        // OpenAIInferenceRequest — typed payload model
+        // ──────────────────────────────────────────────────────────────────
+
+        [Fact]
+        public void OpenAIInferenceRequest_DefaultValues_AreCorrect()
+        {
+            var req = new OpenAIInferenceRequest();
+
+            req.Data.Should().BeNull();
+            req.System.Should().BeNull();
+            req.Instruction.Should().BeNull();
+            req.History.Should().NotBeNull().And.BeEmpty();
+            req.Tools.Should().BeNull();
+            req.Skills.Should().BeNull();
+        }
+
+        [Fact]
+        public void OpenAIInferenceRequest_AllFields_CanBeSet()
+        {
+            var data = new Dictionary<string, object?> { ["key"] = "value" };
+            var history = new List<object?> { new Dictionary<string, object?> { ["role"] = "user", ["content"] = "hello" } };
+            var skills = new List<object?> { "skill1" };
+
+            var req = new OpenAIInferenceRequest
+            {
+                Data = data,
+                System = "Ты профессиональный чат бот по ИТ, отвечай в деловом тоне.",
+                Instruction = "Какая щас погода в Астане?",
+                History = history,
+                Tools = null,
+                Skills = skills,
+            };
+
+            req.Data.Should().Be(data);
+            req.System.Should().Be("Ты профессиональный чат бот по ИТ, отвечай в деловом тоне.");
+            req.Instruction.Should().Be("Какая щас погода в Астане?");
+            req.History.Should().BeSameAs(history);
+            req.Tools.Should().BeNull();
+            req.Skills.Should().Be(skills);
+        }
+
+        [Fact]
+        public void BuildStructuredPrompt_WithTypedRequestFields_ProducesExpectedXml()
+        {
+            var req = new OpenAIInferenceRequest
+            {
+                System = "Ты профессиональный чат бот по ИТ, отвечай в деловом тоне.",
+                Instruction = "Какая щас погода в Астане?",
+            };
+
+            var result = OpenAIHttpClient.BuildStructuredPrompt(
+                data: req.Data,
+                system: req.System,
+                instruction: req.Instruction,
+                history: null,
+                mcp: req.Tools,
+                skills: req.Skills);
+
+            result.Should().Contain("<system>");
+            result.Should().Contain("Ты профессиональный чат бот по ИТ, отвечай в деловом тоне.");
+            result.Should().Contain("<instruction>");
+            result.Should().Contain("Какая щас погода в Астане?");
+            result.Should().NotContain("<data>");
+            result.Should().NotContain("<skills>");
+        }
+
+        [Fact]
+        public void OpenAIHttpClient_DefaultModel_IsGpt4oMini()
+        {
+            // The default model constant is embedded in the constructor default — verify via reflection.
+            var ctor = typeof(OpenAIHttpClient).GetConstructor(new[]
+            {
+                typeof(string), typeof(string), typeof(string)
+            });
+            ctor.Should().NotBeNull();
+
+            // Instantiate with only the required apiToken, letting base/model use defaults.
+            // We verify by checking the default parameter value via ParameterInfo.
+            var parameters = ctor!.GetParameters();
+            var modelParam = parameters[2]; // third parameter is model
+            modelParam.Name.Should().Be("model");
+            modelParam.DefaultValue.Should().Be("gpt-4o-mini");
+        }
+
+
         // ──────────────────────────────────────────────────────────────────
         // BuildStructuredPrompt — basic section inclusion
         // ──────────────────────────────────────────────────────────────────

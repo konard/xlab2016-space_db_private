@@ -17,7 +17,7 @@ namespace Magic.Kernel.Devices.Streams.Drivers
         private readonly string _model;
         private bool _opened;
 
-        public OpenAIDriver(string apiToken, string apiBase = "https://api.openai.com", string model = "gpt-4o")
+        public OpenAIDriver(string apiToken, string apiBase = "https://api.openai.com", string model = "gpt-4o-mini")
         {
             _apiToken = apiToken ?? throw new ArgumentNullException(nameof(apiToken));
             _apiBase = apiBase.TrimEnd('/');
@@ -53,17 +53,13 @@ namespace Magic.Kernel.Devices.Streams.Drivers
         /// <summary>Sends a streaming inference request via <see cref="Magic.Drivers.Inference.OpenAI.OpenAIHttpClient"/>
         /// and enqueues deltas into <paramref name="responseDevice"/>.</summary>
         public Task SendStreamingRequestAsync(
-            object? payload,
-            List<object?> history,
-            string? systemPrompt,
+            Magic.Drivers.Inference.OpenAI.OpenAIInferenceRequest request,
             OpenAIStreamingResponse responseDevice,
             CancellationToken cancellationToken = default)
         {
             var client = new Magic.Drivers.Inference.OpenAI.OpenAIHttpClient(_apiToken, _apiBase, _model);
             return client.SendStreamingAsync(
-                payload,
-                history,
-                systemPrompt,
+                request,
                 delta => responseDevice.EnqueueDelta(delta),
                 () => responseDevice.FinishStream(),
                 cancellationToken);

@@ -1795,7 +1795,9 @@ namespace Magic.Kernel.Compilation
             scanner.Scan();
 
             var isPrintln = string.Equals(functionName, "println", StringComparison.OrdinalIgnoreCase);
-            if (!string.Equals(functionName, "print", StringComparison.OrdinalIgnoreCase) && !isPrintln)
+            var isPrint = string.Equals(functionName, "print", StringComparison.OrdinalIgnoreCase);
+            var isPrintd = string.Equals(functionName, "printd", StringComparison.OrdinalIgnoreCase);
+            if (!isPrint && !isPrintln && !isPrintd)
             {
                 if (scanner.Current.Kind != TokenKind.Identifier)
                     return false;
@@ -1894,7 +1896,7 @@ namespace Magic.Kernel.Compilation
             foreach (var emit in printArgs)
                 emit();
             instructions.Add(CreatePushIntInstruction(printArgs.Count));
-            instructions.Add(CreateCallInstruction(isPrintln ? "println" : "print"));
+            instructions.Add(CreateCallInstruction(isPrintln ? "println" : (isPrintd ? "printd" : "print")));
             // Результат print/println в виде statement не используется — очищаем стек.
             instructions.Add(CreatePopInstruction());
             return true;

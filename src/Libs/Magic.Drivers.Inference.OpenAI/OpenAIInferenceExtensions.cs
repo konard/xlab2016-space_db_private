@@ -27,13 +27,26 @@ namespace Magic.Drivers.Inference.OpenAI
             var client = new OpenAIHttpClient(apiToken, apiBase, model);
             var result = new System.Text.StringBuilder();
 
+            var request = new OpenAIInferenceRequest
+            {
+                System = systemPrompt,
+                Instruction = payload is string s ? s : null,
+                Data = payload is string ? null : payload,
+                History = new List<object?>(history)
+            };
+
+            var finishedTcs = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            using var _ = cancellationToken.Register(() => finishedTcs.TrySetCanceled(cancellationToken));
+
             await client.SendStreamingAsync(
-                payload,
-                history,
-                systemPrompt,
-                delta => result.Append(delta),
-                () => { },
-                cancellationToken).ConfigureAwait(false);
+                    request,
+                    delta => result.Append(delta),
+                    () => finishedTcs.TrySetResult(null),
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            await finishedTcs.Task.ConfigureAwait(false);
 
             return result.ToString();
         }

@@ -47,7 +47,17 @@ namespace Magic.Kernel.Functions
             _memoryReader = memoryReader ?? throw new ArgumentNullException(nameof(memoryReader));
         }
 
-        public async Task ExecutePrintAsync(CallInfo callInfo)
+        public Task ExecutePrintAsync(CallInfo callInfo)
+        {
+            return ExecutePrintInternalAsync(callInfo, includeDebugPrefix: false);
+        }
+
+        public Task ExecutePrintdAsync(CallInfo callInfo)
+        {
+            return ExecutePrintInternalAsync(callInfo, includeDebugPrefix: true);
+        }
+
+        private async Task ExecutePrintInternalAsync(CallInfo callInfo, bool includeDebugPrefix)
         {
             var valuesToPrint = new List<object?>();
             var indexedArgs = callInfo.Parameters
@@ -76,7 +86,8 @@ namespace Magic.Kernel.Functions
                 throw new InvalidOperationException("Print function requires a value parameter.");
             }
 
-            var prefix = Magic.Kernel.Interpretation.ExecutionContext.GetPrefix();
+            var prefix = includeDebugPrefix ? Magic.Kernel.Interpretation.ExecutionContext.GetPrefix() : string.Empty;
+            var isPrintln = string.Equals(callInfo.FunctionName, "println", StringComparison.OrdinalIgnoreCase);
 
             // Проверяем тип вывода
             var outputType = "console";
@@ -123,7 +134,10 @@ namespace Magic.Kernel.Functions
                 var formattedOutput = valuesToPrint.Count == 1
                     ? FormatValue(valuesToPrint[0] ?? "null")
                     : string.Join(" | ", valuesToPrint.Select((value, index) => $"arg{index}: {FormatValue(value ?? "null")}"));
-                Console.WriteLine(prefix + formattedOutput);
+                if (isPrintln)
+                    Console.WriteLine(prefix + formattedOutput);
+                else
+                    Console.Write(prefix + formattedOutput);
             }
         }
 

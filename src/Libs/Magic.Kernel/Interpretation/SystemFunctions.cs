@@ -120,6 +120,10 @@ namespace Magic.Kernel.Interpretation
                     await ExecutePrintAsync(callInfo);
                     return true;
 
+                case "printd":
+                    await ExecutePrintdAsync(callInfo);
+                    return true;
+
                 case "debug":
                 case "debugger":
                     await ExecuteDebugAsync(callInfo);
@@ -859,6 +863,11 @@ namespace Magic.Kernel.Interpretation
         private async Task ExecutePrintAsync(CallInfo callInfo)
         {
             await _printFunctions.ExecutePrintAsync(callInfo);
+        }
+
+        private async Task ExecutePrintdAsync(CallInfo callInfo)
+        {
+            await _printFunctions.ExecutePrintdAsync(callInfo);
         }
 
         private Task ExecuteDebugAsync(CallInfo callInfo)

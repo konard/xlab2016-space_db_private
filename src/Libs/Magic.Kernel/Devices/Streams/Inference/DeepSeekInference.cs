@@ -7,42 +7,35 @@ using Magic.Kernel.Devices.Streams.Drivers;
 
 namespace Magic.Kernel.Devices.Streams.Inference
 {
-    /// <summary>OpenAI-backed inference stream device. Integrates with the OpenAI Chat Completions API (streaming).
-    /// Registered in <see cref="Magic.Kernel.Core.OS.Hal.DefGen"/> via <c>stream&lt;inference,openai&gt;</c>.</summary>
-    public class OpenAIInference : InferenceDevice
+    /// <summary>DeepSeek-backed inference stream device (OpenAI-compatible streaming).</summary>
+    public class DeepSeekInference : InferenceDevice
     {
-        /// <summary>OpenAI API base URL. Defaults to the standard OpenAI endpoint.</summary>
-        public string ApiBase { get; set; } = "https://api.openai.com";
-
-        /// <summary>Model name to use for completions.</summary>
-        public string Model { get; set; } = "gpt-4o-mini";
+        public string ApiBase { get; set; } = "https://api.deepseek.com";
+        public string Model { get; set; } = "deepseek-chat";
 
         protected override IStreamDevice CreateDriver(string apiToken)
-        {
-            return new OpenAIDriver(apiToken, ApiBase, Model);
-        }
+            => new DeepSeekDriver(apiToken, ApiBase, Model);
 
         protected override async Task<object?> WriteRequestAsync(object? payload)
         {
             var request = BuildRequest(payload);
-            // Start streaming in the background via OpenAIDriver.WriteAsync (it owns the queue).
-            var driver = new OpenAIDriver(Token, ApiBase, Model);
+
+            // Start streaming in the background via DeepSeekDriver.WriteAsync (driver owns the queue).
+            var driver = new DeepSeekDriver(Token, ApiBase, Model);
             await driver.OpenAsync().ConfigureAwait(false);
 
             var requestBytes = JsonSerializer.SerializeToUtf8Bytes(request);
             await driver.WriteAsync(requestBytes).ConfigureAwait(false);
 
-            return new OpenAIStreamingResponse(driver);
+            return new DeepSeekStreamingResponse(driver);
         }
 
-        /// <summary>Converts the incoming <paramref name="payload"/> into a typed <see cref="Magic.Drivers.Inference.OpenAI.OpenAIInferenceRequest"/>.
-        /// Accepts either an already-typed instance or an untyped dictionary for backwards compatibility.</summary>
-        private Magic.Drivers.Inference.OpenAI.OpenAIInferenceRequest BuildRequest(object? payload)
+        private Magic.Drivers.Inference.DeepSeek.DeepSeekInferenceRequest BuildRequest(object? payload)
         {
-            if (payload is Magic.Drivers.Inference.OpenAI.OpenAIInferenceRequest typed)
+            if (payload is Magic.Drivers.Inference.DeepSeek.DeepSeekInferenceRequest typed)
                 return typed;
 
-            var req = new Magic.Drivers.Inference.OpenAI.OpenAIInferenceRequest
+            var req = new Magic.Drivers.Inference.DeepSeek.DeepSeekInferenceRequest
             {
                 History = History,
                 System = SystemPrompt,
@@ -59,6 +52,7 @@ namespace Magic.Kernel.Devices.Streams.Inference
                 req.Data = data;
                 if (sys is string sysStr && !string.IsNullOrEmpty(sysStr))
                     req.System = sysStr;
+
                 req.Instruction = instr?.ToString();
                 req.Tools = tools;
                 req.Skills = skills;
@@ -72,3 +66,4 @@ namespace Magic.Kernel.Devices.Streams.Inference
         }
     }
 }
+

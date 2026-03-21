@@ -1,0 +1,37 @@
+@AGI 0.0.1;
+
+program simple_inference;
+system samples;
+module streams/inference;
+
+procedure Main {
+	var vault1 := vault;
+	var token = vault1.read("token");
+	var gpt1 := stream<inference, openai>;
+	var history := [];
+	gpt1.open({
+		token: token,
+		history: history
+	});
+	var response := gpt1.write({
+		data: [{
+			information: "Если ты пишешь историю про ИИ, то опиши вначале автора кто он такой подробно. Имя автора: kernel001. "
+		}],
+		system: "Ты писатель, пишешь книги, романы истории.",
+		instruction: "Напиши историю о том как человечеству жить совместно с ИИ без страха. Вначале напиши автора."
+	});
+
+	println("Ответ: ");
+
+	for sync streamwait by delta (response, delta, aggregate) {
+		var text := delta.text;
+
+		print(text);
+
+		streamwait print(text);
+	}
+}
+
+entrypoint {
+	Main;
+}

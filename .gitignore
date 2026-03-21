@@ -79,3 +79,4 @@ dump.rdb
 # IDE-specific files that might contain credentials
 .idea/**/workspace.xml
 .vs/config/applicationhost.config
+"design/Space/vault.json" 

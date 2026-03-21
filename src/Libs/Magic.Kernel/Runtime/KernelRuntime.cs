@@ -125,6 +125,23 @@ namespace Magic.Kernel.Runtime
             var interpreter = _kernel.CreateInterpreter();
             try
             {
+                void WriteLineEnsuringNewLine(string message)
+                {
+                    try
+                    {
+                        // If previous output used Console.Write (no newline), cursor can be mid-line.
+                        // Force a line break before runtime logs so they don't glue to user output.
+                        if (Console.CursorLeft != 0)
+                            Console.WriteLine();
+                    }
+                    catch
+                    {
+                        // Cursor properties might be unavailable when output is redirected.
+                    }
+
+                    Console.WriteLine(message);
+                }
+
                 // Наследуемые слои памяти от родительской задачи.
                 interpreter.MemoryContext.Global = task.InheritedGlobalMemory != null
                     ? new Dictionary<long, object>(task.InheritedGlobalMemory)
@@ -139,16 +156,26 @@ namespace Magic.Kernel.Runtime
 
                 var unitName = task.Unit?.Name ?? "<unknown>";
                 var entry = string.IsNullOrEmpty(task.EntryName) ? "entrypoint" : task.EntryName;
-                Console.WriteLine($"[{DateTime.UtcNow:o}] [runtime] start task: unit='{unitName}', entry='{entry}', tag='{task.Tag ?? ""}'");
+                WriteLineEnsuringNewLine($"[{DateTime.UtcNow:o}] [runtime] start task: unit='{unitName}', entry='{entry}', tag='{task.Tag ?? ""}'");
 
                 var result = await interpreter.InterpreteFromEntryAsync(task.Unit, task.EntryName, task.CallInfo, task.StartBlock).ConfigureAwait(false);
 
-                Console.WriteLine($"[{DateTime.UtcNow:o}] [runtime] complete task: unit='{unitName}', entry='{entry}', tag='{task.Tag ?? ""}'");
+                WriteLineEnsuringNewLine($"[{DateTime.UtcNow:o}] [runtime] complete task: unit='{unitName}', entry='{entry}', tag='{task.Tag ?? ""}'");
                 task.Completion?.TrySetResult(result);
             }
             catch (Exception ex)
             {
                 var prefix = Magic.Kernel.Interpretation.ExecutionContext.GetPrefix(task.Unit);
+                try
+                {
+                    if (Console.CursorLeft != 0)
+                        Console.WriteLine();
+                }
+                catch
+                {
+                    // ignore
+                }
+
                 Console.WriteLine($"[{DateTime.UtcNow:o}] {prefix}runtime task failed: {ex}");
                 task.Completion?.TrySetResult(new InterpretationResult { Success = false });
             }

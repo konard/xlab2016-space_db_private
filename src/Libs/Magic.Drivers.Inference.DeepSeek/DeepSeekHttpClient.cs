@@ -7,11 +7,12 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Magic.Drivers.Inference.OpenAI
+namespace Magic.Drivers.Inference.DeepSeek
 {
-    /// <summary>Standalone OpenAI Chat Completions streaming HTTP client.
-    /// Has no dependency on Magic.Kernel — can be used independently.</summary>
-    public class OpenAIHttpClient
+    /// <summary>
+    /// Standalone OpenAI-compatible streaming HTTP client for DeepSeek.
+    /// </summary>
+    public class DeepSeekHttpClient
     {
         private const string XmlInterpretationMetaPrompt =
 @"XML-подсказка для интерпретации:
@@ -25,7 +26,7 @@ namespace Magic.Drivers.Inference.OpenAI
         private readonly string _consolePrefix;
         private readonly Action<string> _log;
 
-        public OpenAIHttpClient(string apiToken, string apiBase = "https://api.openai.com", string model = "gpt-4o-mini")
+        public DeepSeekHttpClient(string apiToken, string apiBase = "https://api.deepseek.com", string model = "deepseek-chat")
         {
             _apiToken = apiToken ?? throw new ArgumentNullException(nameof(apiToken));
             _apiBase = apiBase.TrimEnd('/');
@@ -36,10 +37,10 @@ namespace Magic.Drivers.Inference.OpenAI
         }
 
         /// <summary>
-        /// OpenAI client with optional console logging.
+        /// DeepSeek client with optional console logging.
         /// Prefix should already be formatted like ExecutionContext.GetPrefix() (e.g. "unit: idx: ").
         /// </summary>
-        public OpenAIHttpClient(
+        public DeepSeekHttpClient(
             string apiToken,
             string apiBase,
             string model,
@@ -53,8 +54,6 @@ namespace Magic.Drivers.Inference.OpenAI
             _log = logAction ?? Console.WriteLine;
         }
 
-        /// <summary>Builds a structured XML prompt from individual sections to prevent prompt injection.
-        /// Sections with null or empty values are omitted. Non-string values are serialised as JSON.</summary>
         public static string BuildStructuredPrompt(
             object? data,
             string? system,
@@ -87,6 +86,7 @@ namespace Magic.Drivers.Inference.OpenAI
         {
             if (string.IsNullOrEmpty(value))
                 return;
+
             sb.Append('<').Append(tag).AppendLine(">")
               .AppendLine(value.Trim())
               .Append("</").Append(tag).AppendLine(">");
@@ -96,16 +96,12 @@ namespace Magic.Drivers.Inference.OpenAI
         {
             if (value is string s)
                 return s;
+
             return JsonSerializer.Serialize(value, new JsonSerializerOptions { WriteIndented = false });
         }
 
-        /// <summary>Sends a streaming chat completion request to the OpenAI API using a typed <see cref="OpenAIInferenceRequest"/>.
-        /// Fields are composed into a structured XML prompt to clearly separate instructions from data
-        /// and prevent prompt injection.
-        /// The HTTP request is awaited immediately so the response headers are received before reading the SSE stream.
-        /// Calls <paramref name="onDelta"/> for each text delta and <paramref name="onFinish"/> when the stream ends.</summary>
         public async Task SendStreamingAsync(
-            OpenAIInferenceRequest request,
+            DeepSeekInferenceRequest request,
             Action<string> onDelta,
             Action onFinish,
             CancellationToken cancellationToken = default)
@@ -115,8 +111,6 @@ namespace Magic.Drivers.Inference.OpenAI
 
             var messages = new List<object>();
 
-            // Build structured XML prompt and put it into the system role.
-            // Meta-prompt above the XML prevents prompt-injection via <data>/<history>.
             var xmlPrompt = BuildStructuredPrompt(
                 request.Data,
                 request.System,
@@ -131,6 +125,7 @@ namespace Magic.Drivers.Inference.OpenAI
 
             messages.Add(new { role = "system", content = systemContent });
 
+            // DeepSeek is OpenAI-compatible for /v1/chat/completions.
             var requestBody = new
             {
                 model = _model,
@@ -146,20 +141,26 @@ namespace Magic.Drivers.Inference.OpenAI
 
             _log(_consolePrefix + "calling ai");
 
-            // Await the HTTP request immediately so the response headers are received before delegating to the stream loop.
-            var response = await httpClient.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+            // Await headers first; SSE read is handled in a separate Task.
+            var response = await httpClient.SendAsync(
+                    httpRequest,
+                    HttpCompletionOption.ResponseHeadersRead,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
             _log(_consolePrefix + "called ai");
+
             var streamTask = Task.Run(async () =>
-                await RunStreamLoopAsync(httpClient, response, onDelta, onFinish, cancellationToken, _consolePrefix, _log).ConfigureAwait(false));
-            // Fire-and-forget stream loop: observe faults to avoid UnobservedTaskException.
+                await RunStreamLoopAsync(httpClient, response, onDelta, onFinish, cancellationToken, _consolePrefix, _log)
+                    .ConfigureAwait(false));
+
+            // Observe faults to avoid UnobservedTaskException.
             _ = streamTask.ContinueWith(
                 t => { var _ = t.Exception; },
                 TaskContinuationOptions.OnlyOnFaulted);
         }
 
-        /// <summary>Reads the SSE stream from the HTTP response, enqueuing text deltas via <paramref name="onDelta"/>.
-        /// Calls <paramref name="onFinish"/> when the stream ends or an error occurs.</summary>
-        private async Task RunStreamLoopAsync(
+        private static async Task RunStreamLoopAsync(
             HttpClient httpClient,
             HttpResponseMessage response,
             Action<string> onDelta,
@@ -194,7 +195,8 @@ namespace Magic.Drivers.Inference.OpenAI
                         if (root.TryGetProperty("choices", out var choices) && choices.GetArrayLength() > 0)
                         {
                             var choice = choices[0];
-                            if (choice.TryGetProperty("delta", out var delta) && delta.TryGetProperty("content", out var contentProp))
+                            if (choice.TryGetProperty("delta", out var delta) &&
+                                delta.TryGetProperty("content", out var contentProp))
                             {
                                 var text = contentProp.GetString();
                                 if (!string.IsNullOrEmpty(text))
@@ -208,7 +210,6 @@ namespace Magic.Drivers.Inference.OpenAI
                     {
                         // Malformed SSE line — skip.
                     }
-
                 }
             }
             finally
@@ -219,3 +220,4 @@ namespace Magic.Drivers.Inference.OpenAI
         }
     }
 }
+

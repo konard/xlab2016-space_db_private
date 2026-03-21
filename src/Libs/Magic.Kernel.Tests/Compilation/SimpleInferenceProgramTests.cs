@@ -178,6 +178,49 @@ entrypoint {
         }
 
         // ──────────────────────────────────────────────────────────
+        // Fix 5: stream<inference, deepseek> should compile
+        // ──────────────────────────────────────────────────────────
+        [Fact]
+        public void ParseProgram_InferenceDeepSeekStream_ShouldGenerateDefGenAsm()
+        {
+            // Arrange
+            var source = @"@AGI 0.0.1;
+
+program test;
+module test;
+
+procedure Main {
+    var gpt1 := stream<inference, deepseek>;
+}
+
+entrypoint {
+    Main;
+}";
+
+            // Act
+            var structure = _parser.ParseProgram(source);
+            var analyzed = _semanticAnalyzer.AnalyzeProgram(structure, _parser, source);
+
+            // Assert
+            analyzed.Procedures.Should().ContainKey("Main");
+            var asm = analyzed.Procedures["Main"].Body;
+
+            // Should contain Def then Pop (base stream) and DefGen then Pop
+            asm.Any(c => c.Opcode == Opcodes.Def).Should().BeTrue("stream def should be emitted");
+            asm.Any(c => c.Opcode == Opcodes.DefGen).Should().BeTrue("defgen for inference/deepseek should be emitted");
+
+            // The type pushes should include "stream", "inference", "deepseek"
+            var typePushes = asm
+                .Where(c => c.Opcode == Opcodes.Push && c.Operand1 is PushOperand po && po.Kind == "Type")
+                .Select(c => ((PushOperand)c.Operand1!).Value?.ToString()?.ToLowerInvariant())
+                .ToList();
+
+            typePushes.Should().Contain("stream");
+            typePushes.Should().Contain("inference");
+            typePushes.Should().Contain("deepseek");
+        }
+
+        // ──────────────────────────────────────────────────────────
         // Fix 2: JSON method call with :time symbolic values should
         // compile as structured data, not a flat string.
         // ──────────────────────────────────────────────────────────

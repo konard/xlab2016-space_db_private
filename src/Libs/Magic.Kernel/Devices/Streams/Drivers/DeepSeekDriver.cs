@@ -10,10 +10,10 @@ using Magic.Kernel.Devices.Streams.Inference;
 namespace Magic.Kernel.Devices.Streams.Drivers
 {
     /// <summary>
-    /// OpenAI inference stream driver with internal delta queue.
+    /// DeepSeek inference stream driver with internal delta queue.
     /// Queueing + HTTP streaming is triggered on <see cref="WriteAsync(byte[])"/>.
     /// </summary>
-    public class OpenAIDriver : IStreamDevice
+    public class DeepSeekDriver : IStreamDevice
     {
         private readonly string _apiToken;
         private readonly string _apiBase;
@@ -26,7 +26,7 @@ namespace Magic.Kernel.Devices.Streams.Drivers
         private int _streamWaitPollIntervalMs = 10;
         private CancellationTokenSource? _cts;
 
-        public OpenAIDriver(string apiToken, string apiBase = "https://api.openai.com", string model = "gpt-4o-mini")
+        public DeepSeekDriver(string apiToken, string apiBase = "https://api.deepseek.com", string model = "deepseek-chat")
         {
             _apiToken = apiToken ?? throw new ArgumentNullException(nameof(apiToken));
             _apiBase = apiBase.TrimEnd('/');
@@ -48,7 +48,6 @@ namespace Magic.Kernel.Devices.Streams.Drivers
             _cts?.Dispose();
             _cts = null;
 
-            // best-effort clear
             while (_deltaQueue.TryDequeue(out _)) { }
             _streamFinished = false;
             _chunkIndex = 0;
@@ -56,10 +55,6 @@ namespace Magic.Kernel.Devices.Streams.Drivers
             return Task.FromResult(DeviceOperationResult.Success);
         }
 
-        /// <summary>
-        /// Accepts JSON-serialized <see cref="Magic.Drivers.Inference.OpenAI.OpenAIInferenceRequest"/> bytes.
-        /// Starts HTTP streaming and enqueues text deltas into an internal queue.
-        /// </summary>
         public async Task<DeviceOperationResult> WriteAsync(byte[] bytes)
         {
             if (!_opened)
@@ -68,26 +63,27 @@ namespace Magic.Kernel.Devices.Streams.Drivers
             if (bytes == null || bytes.Length == 0)
                 return DeviceOperationResult.Fail(DeviceOperationState.InvalidState, "Empty write payload");
 
-            // Reset queue state for the next request.
+            // Reset for the next request
             while (_deltaQueue.TryDequeue(out _)) { }
             _streamFinished = false;
             _chunkIndex = 0;
 
-            Magic.Drivers.Inference.OpenAI.OpenAIInferenceRequest? request;
+            Magic.Drivers.Inference.DeepSeek.DeepSeekInferenceRequest? request;
             try
             {
-                request = JsonSerializer.Deserialize<Magic.Drivers.Inference.OpenAI.OpenAIInferenceRequest>(bytes);
+                request = JsonSerializer.Deserialize<Magic.Drivers.Inference.DeepSeek.DeepSeekInferenceRequest>(bytes);
             }
             catch (Exception ex)
             {
-                return DeviceOperationResult.Fail(DeviceOperationState.Failed, $"Failed to parse OpenAIInferenceRequest: {ex.Message}");
+                return DeviceOperationResult.Fail(DeviceOperationState.Failed, $"Failed to parse DeepSeekInferenceRequest: {ex.Message}");
             }
 
             if (request == null)
-                return DeviceOperationResult.Fail(DeviceOperationState.Failed, "OpenAIInferenceRequest is null");
+                return DeviceOperationResult.Fail(DeviceOperationState.Failed, "DeepSeekInferenceRequest is null");
 
             var prefix = Magic.Kernel.Interpretation.ExecutionContext.GetPrefix();
-            var client = new Magic.Drivers.Inference.OpenAI.OpenAIHttpClient(
+
+            var client = new Magic.Drivers.Inference.DeepSeek.DeepSeekHttpClient(
                 _apiToken,
                 _apiBase,
                 _model,
@@ -104,10 +100,6 @@ namespace Magic.Kernel.Devices.Streams.Drivers
             return DeviceOperationResult.Success;
         }
 
-        /// <summary>
-        /// Waits for the next queued delta and returns it as a JSON StreamChunk: {"text":"..."}.
-        /// When the stream is finished and queue is empty, returns a success with null chunk (stream end).
-        /// </summary>
         public async Task<(DeviceOperationResult Result, IStreamChunk? Chunk)> ReadChunkAsync()
         {
             if (!_opened)
@@ -154,3 +146,4 @@ namespace Magic.Kernel.Devices.Streams.Drivers
             => Task.FromResult((DeviceOperationResult.Success, 0L));
     }
 }
+

@@ -164,6 +164,11 @@ namespace Magic.Kernel.Core.OS
                 defType.Generalizations.Add(new OpenAIInference());
                 return defObj;
             }
+            if (streamDevice != null && genSet.Contains("inference") && genSet.Contains("deepseek"))
+            {
+                defType.Generalizations.Add(new DeepSeekInference());
+                return defObj;
+            }
             if (streamDevice != null && genSet.Contains("messenger") && genSet.Contains("telegram") && genSet.Contains("client"))
             {
                 defType.Generalizations.Add(new Devices.Streams.WTelegramStreamDevice());
@@ -196,6 +201,8 @@ namespace Magic.Kernel.Core.OS
                 else if (string.Equals(g as string, "inference", StringComparison.OrdinalIgnoreCase))
                     ; // handled by combined genSet checks above
                 else if (string.Equals(g as string, "openai", StringComparison.OrdinalIgnoreCase))
+                    ; // handled by combined genSet checks above
+                else if (string.Equals(g as string, "deepseek", StringComparison.OrdinalIgnoreCase))
                     ; // handled by combined genSet checks above
                 else if (string.Equals(g as string, "postgres", StringComparison.OrdinalIgnoreCase))
                     defType.Generalizations.Add(new Devices.Store.Postgres());
@@ -237,21 +244,57 @@ namespace Magic.Kernel.Core.OS
             return await type.Await().ConfigureAwait(false);
         }
 
-        /// <summary>StreamWait output: switch on function name — "print" writes to console and adds to RuntimeOutputs.</summary>
+        /// <summary>StreamWait output: route stream items to "print"/"printd"/"println".</summary>
         public static void StreamWaitAsync(ExecutableUnit? unit, string? functionName, object? value)
         {
-            var prefix = Magic.Kernel.Interpretation.ExecutionContext.GetPrefix(unit);
+            // Interpreter passes "arg0..argN-1" as a single object (the args array).
+            // For the common case streamwait print(x) where arity=1, unwrap so output matches print(x).
+            if (value is object?[] singleArgs && singleArgs.Length == 1)
+                value = singleArgs[0];
 
             switch (functionName?.ToLowerInvariant())
             {
                 case "print":
-                    var display = value is string s ? s : (value is System.Collections.IDictionary or System.Collections.IEnumerable && value is not string
-                        ? JsonSerializer.Serialize(value)
-                        : value?.ToString() ?? "");
-                    Console.WriteLine(prefix + "Streamwait output: " + display);
+                {
+                    // "print" during streamwait is runtime-only (no console output).
+                    var display = value is string s
+                        ? s
+                        : (value is System.Collections.IDictionary or System.Collections.IEnumerable && value is not string
+                            ? JsonSerializer.Serialize(value)
+                            : value?.ToString() ?? "");
                     if (unit != null)
                         unit.RuntimeOutputs.Add(value);
                     break;
+                }
+
+                case "println":
+                {
+                    // "println" during streamwait should be clean and should include new line.
+                    var display = value is string s
+                        ? s
+                        : (value is System.Collections.IDictionary or System.Collections.IEnumerable && value is not string
+                            ? JsonSerializer.Serialize(value)
+                            : value?.ToString() ?? "");
+                    Console.WriteLine(display);
+                    if (unit != null)
+                        unit.RuntimeOutputs.Add(value);
+                    break;
+                }
+
+                case "printd":
+                {
+                    // Debug variant: includes execution prefix and a clear wrapper.
+                    var prefix = Magic.Kernel.Interpretation.ExecutionContext.GetPrefix(unit);
+                    var display = value is string s
+                        ? s
+                        : (value is System.Collections.IDictionary or System.Collections.IEnumerable && value is not string
+                            ? JsonSerializer.Serialize(value)
+                            : value?.ToString() ?? "");
+                    Console.Write(prefix + "Streamwait output: " + display);
+                    if (unit != null)
+                        unit.RuntimeOutputs.Add(value);
+                    break;
+                }
             }
         }
 
@@ -281,8 +324,23 @@ namespace Magic.Kernel.Core.OS
             if (obj is Data.Database schemaDb)
                 return schemaDb.Tables.FirstOrDefault(t => string.Equals(t.Name, memberName, StringComparison.OrdinalIgnoreCase));
 
-            if (obj is StreamChunk chunk && string.Equals(memberName, "data", StringComparison.OrdinalIgnoreCase))
-                return ConvertStreamChunkData(chunk);
+            if (obj is StreamChunk chunk)
+            {
+                if (string.Equals(memberName, "data", StringComparison.OrdinalIgnoreCase))
+                    return ConvertStreamChunkData(chunk);
+
+                // Convenience: allow accessing JSON fields directly from StreamChunk,
+                // e.g. delta.text when chunk.DataFormat == Json and Data is {"text":"..."}.
+                var converted = ConvertStreamChunkData(chunk);
+                if (converted is IDictionary rawDictChunk)
+                {
+                    foreach (DictionaryEntry entry in rawDictChunk)
+                    {
+                        if (entry.Key is string s && string.Equals(s, memberName, StringComparison.Ordinal))
+                            return entry.Value;
+                    }
+                }
+            }
 
             if (obj is IDictionary<string, object> dict)
                 return TryGetDictionaryValue(dict, memberName);

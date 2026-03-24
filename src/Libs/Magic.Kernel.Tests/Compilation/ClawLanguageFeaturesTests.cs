@@ -194,5 +194,154 @@ entrypoint {
             result.Result!.EntryPoint.Count.Should().BeGreaterThan(0);
             result.Result.EntryPoint.Any(c => c.Opcode == Opcodes.DefGen).Should().BeTrue();
         }
+
+        [Fact]
+        public async Task CompileAsync_ProcedureWithMemberAccessFromParam_ShouldRegisterLocalVar()
+        {
+            // Arrange: procedure that reads a member from a parameter and stores it in a local var.
+            // Regression test for: member access from a global-kind (procedure param) variable was not
+            // registering the result variable, causing subsequent uses to throw "undeclared variable".
+            var source = @"@AGI 0.0.1
+program Test;
+module Test/Test;
+
+procedure call(data) {
+    var command := data.command;
+}
+
+entrypoint {
+    asm {
+        push string ""hello"";
+        push int 1;
+        call call;
+    }
+}";
+
+            // Act
+            var result = await _compiler.CompileAsync(source);
+
+            // Assert
+            result.Success.Should().BeTrue(result.ErrorMessage);
+            result.Result!.Procedures.Should().ContainKey("call");
+        }
+
+        [Fact]
+        public async Task CompileAsync_ProcedureWithSwitchOnMemberAccessVar_ShouldCompileSuccessfully()
+        {
+            // Arrange: reproduces the client_claw.agi compilation failure where 'command' (obtained via
+            // member access from a procedure parameter) was not in scope when compiling the switch statement.
+            var source = @"@AGI 0.0.1
+program Test;
+module Test/Test;
+
+procedure call(data) {
+    var authentication := data.authentication;
+
+    if !authentication.isAuthenticated return;
+
+    var command := data.command;
+
+    switch command {
+        if ""hello_world""
+            print(""Hello world"");
+    }
+}
+
+entrypoint {
+    asm {
+        push string ""hello"";
+        push int 1;
+        call call;
+    }
+}";
+
+            // Act
+            var result = await _compiler.CompileAsync(source);
+
+            // Assert
+            result.Success.Should().BeTrue(result.ErrorMessage);
+            result.Result!.Procedures.Should().ContainKey("call");
+        }
+
+        [Fact]
+        public async Task CompileAsync_PrintWithFormatStringArgument_ShouldCompileSuccessfully()
+        {
+            // Arrange: print() with a #"format {expr}" argument.
+            // Regression test for: '#' was treated as undeclared identifier instead of format string prefix.
+            var source = @"@AGI 0.0.1
+program Test;
+module Test/Test;
+
+procedure greet(data) {
+    var socket1 := socket;
+    print(#""Hello {socket1.name}"");
+}
+
+entrypoint {
+    asm {
+        push int 0;
+        call greet;
+    }
+}";
+
+            // Act
+            var result = await _compiler.CompileAsync(source);
+
+            // Assert
+            result.Success.Should().BeTrue(result.ErrorMessage);
+            result.Result!.Procedures.Should().ContainKey("greet");
+        }
+
+        [Fact]
+        public async Task CompileAsync_FullClientClawPattern_ShouldCompileSuccessfully()
+        {
+            // Arrange: the full pattern from client_claw.agi that was failing to compile.
+            var source = @"@AGI 0.0.1;
+
+program clients_claw;
+system samples;
+module claw;
+
+procedure call(data) {
+    var authentication := data.authentication;
+
+    if !authentication.isAuthenticated return;
+
+    var command := data.command;
+    var socket1 := socket;
+
+    switch command {
+        if ""hello_world""
+            print(#""Hello world from Claw {socket1.name}"");
+    }
+}
+
+procedure Main() {
+    var vault1 := vault;
+    var port := vault1.read(""port"");
+    var credentials := vault1.read(""credentials"");
+
+    var claw1 := stream<claw>;
+    claw1.open({
+        port: port,
+        authentication: {
+            credentials: credentials
+        }
+    });
+    claw1.methods.add(""call"", &call);
+}
+
+entrypoint {
+    Main;
+}";
+
+            // Act
+            var result = await _compiler.CompileAsync(source);
+
+            // Assert
+            result.Success.Should().BeTrue(result.ErrorMessage);
+            result.Result!.Procedures.Should().ContainKey("call");
+            result.Result.Procedures.Should().ContainKey("Main");
+        }
     }
 }

@@ -141,7 +141,7 @@ namespace Magic.Kernel.Compilation
                 if (TryCompileAwaitStatement(line, vars, instructions))
                     continue;
 
-                if (TryCompileFunctionCall(line, vars, instructions))
+                if (TryCompileFunctionCall(line, vars, ref memorySlotCounter, instructions))
                     continue;
 
                 if (TryParseProcedureName(line, out var procName))
@@ -1296,11 +1296,11 @@ namespace Magic.Kernel.Compilation
                 {
                     if (!vars.TryGetValue(memberAccessBaseName, out var memberAccessVar))
                         throw new UndeclaredVariableException(memberAccessBaseName);
-                    if (memberAccessVar.Kind != "memory" && memberAccessVar.Kind != "stream" && memberAccessVar.Kind != "def")
+                    if (memberAccessVar.Kind != "memory" && memberAccessVar.Kind != "stream" && memberAccessVar.Kind != "def" && memberAccessVar.Kind != "global")
                         return true;
                     var resultSlot = memorySlotCounter++;
                     vars[targetName] = ("memory", resultSlot);
-                    instructions.Add(CreatePushMemoryInstruction(memberAccessVar.Index));
+                    instructions.Add(memberAccessVar.Kind == "global" ? CreatePushGlobalMemoryInstruction(memberAccessVar.Index) : CreatePushMemoryInstruction(memberAccessVar.Index));
                     var segments = memberAccessPath.Split('.', StringSplitOptions.RemoveEmptyEntries);
                     foreach (var segment in segments)
                     {
@@ -1784,7 +1784,7 @@ namespace Magic.Kernel.Compilation
             return true;
         }
 
-        private bool TryCompileFunctionCall(string line, Dictionary<string, (string Kind, int Index)> vars, List<InstructionNode> instructions)
+        private bool TryCompileFunctionCall(string line, Dictionary<string, (string Kind, int Index)> vars, ref int memorySlotCounter, List<InstructionNode> instructions)
         {
             var scanner = new Scanner(line);
             if (scanner.Current.Kind != TokenKind.Identifier)
@@ -1857,7 +1857,40 @@ namespace Magic.Kernel.Compilation
                     else if (scanner.Current.Kind == TokenKind.Identifier)
                     {
                         var identifier = scanner.Scan().Value;
-                        if (vars.TryGetValue(identifier, out var argVar))
+                        // Handle format string: #"template {expr}" used as a print argument
+                        if (identifier == "#" && scanner.Current.Kind == TokenKind.StringLiteral)
+                        {
+                            var rawStr = scanner.Scan().Value;
+                            var formatLiteral = "#\"" + rawStr + "\"";
+                            if (TryParseFormatStringLiteral(formatLiteral, out var fmtTemplate, out var fmtExprs))
+                            {
+                                var fmtParams = new List<ParameterNode>
+                                {
+                                    new FunctionNameParameterNode { Name = "function", FunctionName = "format" },
+                                    new StringParameterNode { Name = "0", Value = fmtTemplate }
+                                };
+                                for (var fi = 0; fi < fmtExprs.Count; fi++)
+                                {
+                                    var argSlot = memorySlotCounter++;
+                                    if (!TryCompileExpressionToSlot(fmtExprs[fi], vars, argSlot, ref memorySlotCounter, instructions))
+                                        return false;
+                                    var capturedSlot = argSlot;
+                                    fmtParams.Add(new FunctionParameterNode
+                                    {
+                                        Name = (fi + 1).ToString(),
+                                        ParameterName = (fi + 1).ToString(),
+                                        EntityType = "memory",
+                                        Index = capturedSlot
+                                    });
+                                }
+                                printArgs.Add(() => instructions.Add(new InstructionNode { Opcode = "call", Parameters = fmtParams }));
+                            }
+                            else
+                            {
+                                printArgs.Add(() => instructions.Add(CreatePushStringInstruction(rawStr)));
+                            }
+                        }
+                        else if (vars.TryGetValue(identifier, out var argVar))
                         {
                             if (argVar.Kind == "global")
                                 printArgs.Add(() => instructions.Add(CreatePushGlobalMemoryInstruction(argVar.Index)));

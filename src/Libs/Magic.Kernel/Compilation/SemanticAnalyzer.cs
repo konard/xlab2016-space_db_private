@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using Magic.Kernel.Compilation.Ast;
 using Magic.Kernel.Processor;
 using Magic.Kernel.Space;
@@ -35,6 +36,11 @@ namespace Magic.Kernel.Compilation
         private void AddAnalyzedCommand(ExecutionBlock block, InstructionNode instructionNode)
         {
             var cmd = Analyze(instructionNode);
+            if (instructionNode.SourceLine > 0)
+            {
+                cmd.SourceLine = instructionNode.SourceLine;
+            }
+
             if (ShouldInjectZeroArity(block, instructionNode, cmd))
                 block.Add(_assembler.EmitPushIntLiteral(0));
             block.Add(cmd);
@@ -74,11 +80,13 @@ namespace Magic.Kernel.Compilation
             var result = new AnalyzedProgram();
             if (programStructure.Prelude.Count > 0)
             {
+                _statementLoweringCompiler.BeginStatementSequence();
                 foreach (var instructionNode in LowerToInstructions(programStructure.Prelude, registerGlobals: true))
                     AddAnalyzedCommand(result.EntryPoint, instructionNode);
             }
             if (programStructure.EntryPoint != null && programStructure.EntryPoint.Count > 0)
             {
+                _statementLoweringCompiler.BeginStatementSequence();
                 foreach (var instructionNode in LowerToInstructions(programStructure.EntryPoint))
                     AddAnalyzedCommand(result.EntryPoint, instructionNode);
             }
@@ -96,6 +104,7 @@ namespace Magic.Kernel.Compilation
                 // accessible inside the procedure body (e.g. schema references like Db>).
                 var procCompiler = new StatementLoweringCompiler();
                 procCompiler.InheritGlobalSlots(_statementLoweringCompiler);
+                procCompiler.BeginStatementSequence();
 
                 // If the procedure has named parameters, prepend parameter-binding instructions.
                 // Calling convention: stack has [arg0, arg1, ..., argN-1, N] before procedure body.
@@ -137,6 +146,7 @@ namespace Magic.Kernel.Compilation
             foreach (var func in programStructure.Functions)
             {
                 var function = new Processor.Function { Name = func.Key };
+                _statementLoweringCompiler.BeginStatementSequence();
                 foreach (var instructionNode in LowerToInstructions(func.Value))
                     AddAnalyzedCommand(function.Body, instructionNode);
                 // Явный ret в конце функции.
@@ -162,13 +172,13 @@ namespace Magic.Kernel.Compilation
         private IEnumerable<InstructionNode> LowerToInstructions(IEnumerable<AstNode> bodyNodes, StatementLoweringCompiler compiler, bool registerGlobals = false)
         {
             var instructions = new List<InstructionNode>();
-            var statementLines = new List<string>();
+            var statementLines = new List<(string Text, int SourceLine)>();
 
             foreach (var node in bodyNodes)
             {
                 if (node is StatementLineNode statementLineNode)
                 {
-                    statementLines.Add(statementLineNode.Text);
+                    statementLines.Add((statementLineNode.Text, statementLineNode.SourceLine));
                     continue;
                 }
 
@@ -185,14 +195,35 @@ namespace Magic.Kernel.Compilation
         }
 
         private void FlushStatementLines(List<string> statementLines, List<InstructionNode> instructions, bool registerGlobals = false)
-            => FlushStatementLines(statementLines, instructions, _statementLoweringCompiler, registerGlobals);
+        {
+            var wrapped = statementLines.Select(t => (Text: t, SourceLine: 0)).ToList();
+            FlushStatementLines(wrapped, instructions, _statementLoweringCompiler, registerGlobals);
+        }
 
-        private static void FlushStatementLines(List<string> statementLines, List<InstructionNode> instructions, StatementLoweringCompiler compiler, bool registerGlobals = false)
+        private static void FlushStatementLines(List<(string Text, int SourceLine)> statementLines, List<InstructionNode> instructions, StatementLoweringCompiler compiler, bool registerGlobals = false)
         {
             if (statementLines.Count == 0)
                 return;
 
-            instructions.AddRange(compiler.Lower(statementLines, registerGlobals));
+            // По одной AGI-строке за раз — иначе весь блок получал SourceLine только первой строки и ломались breakpoints.
+            foreach (var (text, srcLine) in statementLines)
+            {
+                if (string.IsNullOrWhiteSpace(text))
+                    continue;
+
+                var lowered = compiler.Lower(new[] { text }, registerGlobals);
+                if (srcLine > 0)
+                {
+                    foreach (var inst in lowered)
+                    {
+                        if (inst.SourceLine <= 0)
+                            inst.SourceLine = srcLine;
+                    }
+                }
+
+                instructions.AddRange(lowered);
+            }
+
             statementLines.Clear();
         }
 

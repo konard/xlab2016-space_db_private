@@ -80,7 +80,8 @@ namespace Magic.Kernel.Devices.Streams.Inference
 
         public override Task<DeviceOperationResult> OpenAsync()
         {
-            Driver = CreateDriver(Token);
+            var prefix = ExecutionCallContext?.GetPrefix() ?? string.Empty;
+            Driver = CreateDriver(Token, prefix);
             return Driver.OpenAsync();
         }
 
@@ -109,6 +110,6 @@ namespace Magic.Kernel.Devices.Streams.Inference
             => RequireDriver().LengthAsync();
 
         /// <summary>Factory method: creates the underlying provider driver using the given API token.</summary>
-        protected abstract IStreamDevice CreateDriver(string apiToken);
+        protected abstract IStreamDevice CreateDriver(string apiToken, string consolePrefix);
     }
 }

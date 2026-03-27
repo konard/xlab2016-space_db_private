@@ -13,15 +13,15 @@ namespace Magic.Kernel.Devices.Streams.Inference
         public string ApiBase { get; set; } = "https://api.deepseek.com";
         public string Model { get; set; } = "deepseek-chat";
 
-        protected override IStreamDevice CreateDriver(string apiToken)
-            => new DeepSeekDriver(apiToken, ApiBase, Model);
+        protected override IStreamDevice CreateDriver(string apiToken, string consolePrefix)
+            => new DeepSeekDriver(apiToken, ApiBase, Model, consolePrefix);
 
         protected override async Task<object?> WriteRequestAsync(object? payload)
         {
             var request = BuildRequest(payload);
 
             // Start streaming in the background via DeepSeekDriver.WriteAsync (driver owns the queue).
-            var driver = new DeepSeekDriver(Token, ApiBase, Model);
+            var driver = new DeepSeekDriver(Token, ApiBase, Model, ExecutionCallContext?.GetPrefix() ?? string.Empty);
             await driver.OpenAsync().ConfigureAwait(false);
 
             var requestBytes = JsonSerializer.SerializeToUtf8Bytes(request);

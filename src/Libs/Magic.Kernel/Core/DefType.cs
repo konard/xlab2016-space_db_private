@@ -13,6 +13,7 @@ namespace Magic.Kernel.Core
         public string Name { get; set; } = "";
         public StructurePosition? Position { get; set; }
         public List<IDefType> Generalizations { get; set; } = new List<IDefType>();
+        public ExecutionCallContext? ExecutionCallContext { get; set; }
 
         public virtual async Task<object?> Await()
         {

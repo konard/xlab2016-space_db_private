@@ -11,13 +11,15 @@ namespace Magic.Kernel.Functions
 {
     public class PrintFunctions
     {
-        private const int MaxPrintedStringLength = 24;
-        private const int PrintedStringPrefixLength = 5;
-        private const int PrintedStringSuffixLength = 3;
+        // Keep console output readable, but avoid truncating normal text payloads.
+        private const int MaxPrintedStringLength = 1024;
+        private const int PrintedStringPrefixLength = 256;
+        private const int PrintedStringSuffixLength = 128;
 
         private readonly KernelConfiguration? _configuration;
         private readonly List<object> _stack;
         private readonly Func<MemoryAddress, (bool Found, object? Value)> _memoryReader;
+        private readonly Compilation.ExecutableUnit? _currentUnit;
 
         public PrintFunctions(KernelConfiguration? configuration, List<object> stack, Dictionary<long, object>? memory = null)
             : this(
@@ -40,11 +42,13 @@ namespace Magic.Kernel.Functions
         public PrintFunctions(
             KernelConfiguration? configuration,
             List<object> stack,
-            Func<MemoryAddress, (bool Found, object? Value)> memoryReader)
+            Func<MemoryAddress, (bool Found, object? Value)> memoryReader,
+            Compilation.ExecutableUnit? currentUnit = null)
         {
             _configuration = configuration;
             _stack = stack;
             _memoryReader = memoryReader ?? throw new ArgumentNullException(nameof(memoryReader));
+            _currentUnit = currentUnit;
         }
 
         public Task ExecutePrintAsync(CallInfo callInfo)
@@ -86,7 +90,7 @@ namespace Magic.Kernel.Functions
                 throw new InvalidOperationException("Print function requires a value parameter.");
             }
 
-            var prefix = includeDebugPrefix ? Magic.Kernel.Interpretation.ExecutionContext.GetPrefix() : string.Empty;
+            var prefix = includeDebugPrefix ? Core.ExecutionCallContext.GetPrefix(_currentUnit) : string.Empty;
             var isPrintln = string.Equals(callInfo.FunctionName, "println", StringComparison.OrdinalIgnoreCase);
 
             // Проверяем тип вывода
@@ -137,7 +141,10 @@ namespace Magic.Kernel.Functions
                 if (isPrintln)
                     Console.WriteLine(prefix + formattedOutput);
                 else
+                {
                     Console.Write(prefix + formattedOutput);
+                    Console.Out.Flush();
+                }
             }
         }
 
@@ -321,7 +328,7 @@ namespace Magic.Kernel.Functions
                 {
                     if (_configuration?.DefaultDisk != null)
                     {
-                        var sn = Magic.Kernel.Interpretation.ExecutionContext.CurrentUnit?.SpaceName;
+                        var sn = _currentUnit?.SpaceName;
                         switch (entityType)
                         {
                             case EntityType.Vertex:

@@ -8,6 +8,9 @@ namespace Magic.Kernel.Processor
 {
     public class Command
     {
+        /// <summary>1-based номер строки AGI; 0 — неизвестно/синтетическая команда.</summary>
+        public int SourceLine { get; set; }
+
         public object? Operand1 { get; set; }
         public object? Operand2 { get; set; }
         public Opcodes Opcode { get; set; } = Opcodes.Nop;

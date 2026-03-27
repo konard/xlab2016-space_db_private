@@ -40,6 +40,19 @@ namespace Magic.Kernel.Compilation
 
         private readonly Dictionary<string, int> _localSlots = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>
+        /// Named bindings (memory/stream/def/…) accumulated across per-line <see cref="Lower"/> calls in one procedure or block.
+        /// Without this, lowering one statement line at a time loses <c>var x := …</c> forfollowing lines (regression after per-line SourceLine fix).
+        /// </summary>
+        private Dictionary<string, (string Kind, int Index)>? _crossLineVarState;
+
+        /// <summary>Start or reset cross-line variable state for the next sequence of lowered lines (prelude, entrypoint, a procedure body, one function, …).</summary>
+        public void BeginStatementSequence()
+        {
+            _crossLineVarState ??= new Dictionary<string, (string Kind, int Index)>(StringComparer.OrdinalIgnoreCase);
+            _crossLineVarState.Clear();
+        }
+
         /// <summary>Copies all global slots from <paramref name="source"/> into this compiler so that
         /// global variables declared in the entrypoint/prelude are accessible inside procedure bodies.</summary>
         public void InheritGlobalSlots(StatementLoweringCompiler source)
@@ -57,6 +70,11 @@ namespace Magic.Kernel.Compilation
             var vars = new Dictionary<string, (string Kind, int Index)>(StringComparer.OrdinalIgnoreCase);
             foreach (var global in _globalSlots)
                 vars[global.Key] = ("global", global.Value);
+            if (_crossLineVarState != null)
+            {
+                foreach (var kv in _crossLineVarState)
+                    vars[kv.Key] = kv.Value;
+            }
             // Local slots (procedure parameters allocated via AllocateLocalSlot) use "memory" kind
             // so that instructions use push [N] (local memory) instead of push global: [N].
             foreach (var local in _localSlots)
@@ -78,6 +96,12 @@ namespace Magic.Kernel.Compilation
                     if (kv.Value.Kind == "memory" || kv.Value.Kind == "global")
                         _globalSlots[kv.Key] = kv.Value.Index;
                 }
+            }
+
+            if (_crossLineVarState != null)
+            {
+                foreach (var kv in vars)
+                    _crossLineVarState[kv.Key] = kv.Value;
             }
 
             return instructions;
@@ -2236,6 +2260,8 @@ namespace Magic.Kernel.Compilation
                     instructions.Add(CreatePushStringInstruction(argText));
                 else if (vars.TryGetValue(argText, out var argVar))
                     instructions.Add(argVar.Kind == "global" ? CreatePushGlobalMemoryInstruction(argVar.Index) : CreatePushMemoryInstruction(argVar.Index));
+                else if (TryParseAddressLiteral(argText, out var address))
+                    instructions.Add(CreatePushAddressInstruction(address));
                 else
                     instructions.Add(CreatePushStringInstruction(argText));
             }
@@ -2466,6 +2492,8 @@ namespace Magic.Kernel.Compilation
                 instructions.Add(CreatePushStringInstruction(argText));
             else if (vars.TryGetValue(argText, out var argVar))
                 instructions.Add(CreatePushMemoryInstruction(argVar.Index));
+            else if (TryParseAddressLiteral(argText, out var address))
+                instructions.Add(CreatePushAddressInstruction(address));
             else
                 instructions.Add(CreatePushStringInstruction(argText));
 
@@ -3722,6 +3750,18 @@ namespace Magic.Kernel.Compilation
             };
         }
 
+        private static InstructionNode CreatePushAddressInstruction(string address)
+        {
+            return new InstructionNode
+            {
+                Opcode = "push",
+                Parameters = new List<ParameterNode>
+                {
+                    new AddressLiteralParameterNode { Name = "address", Address = address }
+                }
+            };
+        }
+
         private static InstructionNode CreatePushIntInstruction(long value)
         {
             return new InstructionNode
@@ -3744,6 +3784,24 @@ namespace Magic.Kernel.Compilation
                     new TypeLiteralParameterNode { TypeName = typeName }
                 }
             };
+        }
+
+        private static bool TryParseAddressLiteral(string text, out string address)
+        {
+            address = string.Empty;
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            var trimmed = text.Trim();
+            if (!trimmed.StartsWith("&", StringComparison.Ordinal) || trimmed.Length <= 1)
+                return false;
+
+            var candidate = trimmed.Substring(1);
+            if (candidate.Any(c => !(char.IsLetterOrDigit(c) || c == '_')))
+                return false;
+
+            address = candidate;
+            return true;
         }
 
         private static InstructionNode CreatePushLambdaArgInstruction(int argIndex)

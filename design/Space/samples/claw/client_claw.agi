@@ -6,6 +6,7 @@ module claw;
 
 procedure call(data) {
 	var authentication := data.authentication;
+	
 	var socket := data.socket;
 
 	if !authentication.isAuthenticated return;
@@ -14,7 +15,7 @@ procedure call(data) {
 
 	switch command {
 		if "hello_world"
-			print(#"Hello world from Claw {socket1.name}");
+			println(#"Hello world from Claw {socket.name}");
 	}
 }
 
@@ -30,6 +31,7 @@ procedure Main() {
 			credentials: credentials
 		}
 	});
+
 	claw1.methods.add("call", &call);
 	await claw1;
 }

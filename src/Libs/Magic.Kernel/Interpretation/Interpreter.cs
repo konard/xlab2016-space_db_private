@@ -12,6 +12,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Reflection;
+using System.Threading;
 
 namespace Magic.Kernel.Interpretation
 {
@@ -27,6 +28,8 @@ namespace Magic.Kernel.Interpretation
         private bool _skipToDefExpr;
         private readonly Stack<(ExecutionBlock Block, long ReturnIp)> _lambdaCallStack = new Stack<(ExecutionBlock, long)>();
         private readonly Stack<object?[]> _lambdaArgsStack = new Stack<object?[]>();
+        private int _queryExecutionDepth;
+        public Devices.Streams.ClawSocketContext? CurrentSocketContext { get; set; }
 
         private sealed class CallFrame
         {
@@ -53,6 +56,89 @@ namespace Magic.Kernel.Interpretation
             set => _configuration = value;
         }
 
+        public InterpreterDebugSession? DebugSession { get; set; }
+
+        /// <summary>Если true, выполнять entrypoint в этом интерпретаторе, а не через <see cref="KernelRuntime.SpawnAsync"/>.</summary>
+        public bool BypassRuntimeSpawn { get; set; }
+
+        private int _debugSkipSourceLine;
+        private bool _breakOnDifferentSourceLine;
+        private int _stepOverAnchorLine;
+        private int _instructionStepsRemaining;
+
+        private void ResetDebugSessionState()
+        {
+            _debugSkipSourceLine = 0;
+            _breakOnDifferentSourceLine = false;
+            _stepOverAnchorLine = 0;
+            _instructionStepsRemaining = 0;
+        }
+
+        private void ApplyDebugResumeAction(DebugResumeAction action, int pausedSourceLine)
+        {
+            switch (action)
+            {
+                case DebugResumeAction.Stop:
+                    throw new OperationCanceledException("Debug stopped.");
+                case DebugResumeAction.Run:
+                    _breakOnDifferentSourceLine = false;
+                    _stepOverAnchorLine = 0;
+                    _instructionStepsRemaining = 0;
+                    _debugSkipSourceLine = pausedSourceLine;
+                    break;
+                case DebugResumeAction.StepOverLine:
+                    _breakOnDifferentSourceLine = true;
+                    _stepOverAnchorLine = pausedSourceLine;
+                    _instructionStepsRemaining = 0;
+                    _debugSkipSourceLine = pausedSourceLine;
+                    break;
+                case DebugResumeAction.StepInstruction:
+                    _breakOnDifferentSourceLine = false;
+                    _stepOverAnchorLine = 0;
+                    _debugSkipSourceLine = 0;
+                    _instructionStepsRemaining = 1;
+                    break;
+            }
+        }
+
+        private async Task MaybeDebugPauseBeforeExecuteAsync(Command command)
+        {
+            var session = DebugSession;
+            if (session == null)
+                return;
+
+            session.ContinueCancellationToken.ThrowIfCancellationRequested();
+
+            var line = command.SourceLine;
+            if (line > 0 && _debugSkipSourceLine != 0 && line != _debugSkipSourceLine)
+                _debugSkipSourceLine = 0;
+
+            var stepOverHit = _breakOnDifferentSourceLine && line > 0 && line != _stepOverAnchorLine;
+            var breakpointHit = line > 0 && session.IsBreakpointLine(line) &&
+                                (_debugSkipSourceLine == 0 || line != _debugSkipSourceLine);
+
+            if (!stepOverHit && !breakpointHit)
+                return;
+
+            await session.WaitPausedAsync(line, session.ContinueCancellationToken).ConfigureAwait(false);
+            ApplyDebugResumeAction(session.ConsumeResumeAction(), line);
+        }
+
+        private async Task MaybeDebugPauseAfterInstructionAsync(Command command)
+        {
+            var session = DebugSession;
+            if (session == null || _instructionStepsRemaining <= 0)
+                return;
+
+            _instructionStepsRemaining--;
+            if (_instructionStepsRemaining > 0)
+                return;
+
+            var showLine = command.SourceLine > 0 ? command.SourceLine : (_stepOverAnchorLine > 0 ? _stepOverAnchorLine : 1);
+            await session.WaitPausedAsync(showLine, session.ContinueCancellationToken).ConfigureAwait(false);
+            ApplyDebugResumeAction(session.ConsumeResumeAction(), command.SourceLine > 0 ? command.SourceLine : showLine);
+        }
+
         public async Task<List<InterpretationResult>> InterpreteAsync(List<ExecutableUnit> list)
         {
             var result = new List<InterpretationResult>();
@@ -71,7 +157,7 @@ namespace Magic.Kernel.Interpretation
 
             // Если сконфигурирован Erlang-подобный runtime, интерпретатор не выполняет unit сам,
             // а только делает spawn entrypoint в TaskQueue. Это fire-and-forget, как spawn/1.
-            if (_configuration?.Runtime != null)
+            if (_configuration?.Runtime != null && !BypassRuntimeSpawn)
             {
                 await _configuration.Runtime.SpawnAsync(executableUnit).ConfigureAwait(false);
                 return new InterpretationResult
@@ -81,6 +167,7 @@ namespace Magic.Kernel.Interpretation
             }
 
             // Fallback: однопоточное выполнение entrypoint (старое поведение без runtime).
+            ResetDebugSessionState();
             instructionPointer = 0;
             _unit = executableUnit;
             _currentBlock = executableUnit.EntryPoint ?? new ExecutionBlock();
@@ -96,8 +183,6 @@ namespace Magic.Kernel.Interpretation
             // SpaceName в ExecutableUnit: system|module|program для префикса ключей диска
             executableUnit.SpaceName = BuildSpaceName(executableUnit.System, executableUnit.Module, executableUnit.Name);
 
-            var previousUnit = ExecutionContext.CurrentUnit;
-            ExecutionContext.CurrentUnit = executableUnit;
             try
             {
                 while (true)
@@ -119,6 +204,7 @@ namespace Magic.Kernel.Interpretation
 
                     var command = _currentBlock[(int)instructionPointer];
                     instructionPointer++; // advance first; Call/Ret may override instructionPointer
+                    await MaybeDebugPauseBeforeExecuteAsync(command).ConfigureAwait(false);
                     if (_skipToDefExpr)
                     {
                         if (command.Opcode == Opcodes.DefExpr)
@@ -129,6 +215,7 @@ namespace Magic.Kernel.Interpretation
                         continue;
                     }
                     await ExecuteAsync(command);
+                    await MaybeDebugPauseAfterInstructionAsync(command).ConfigureAwait(false);
                 }
 
                 return new InterpretationResult
@@ -136,10 +223,11 @@ namespace Magic.Kernel.Interpretation
                     Success = true,
                 };
             }
-            finally
+            catch (OperationCanceledException)
             {
-                ExecutionContext.CurrentUnit = previousUnit;
+                return new InterpretationResult { Success = false };
             }
+            finally { }
         }
 
         /// <summary>
@@ -201,8 +289,7 @@ namespace Magic.Kernel.Interpretation
 
             _currentLabelOffsets = BuildLabelOffsets(_currentBlock!);
 
-            var previousUnit = ExecutionContext.CurrentUnit;
-            ExecutionContext.CurrentUnit = executableUnit;
+            ResetDebugSessionState();
             try
             {
                 while (true)
@@ -222,6 +309,7 @@ namespace Magic.Kernel.Interpretation
                     }
                     var command = _currentBlock[(int)instructionPointer];
                     instructionPointer++;
+                    await MaybeDebugPauseBeforeExecuteAsync(command).ConfigureAwait(false);
                     if (_skipToDefExpr)
                     {
                         if (command.Opcode == Opcodes.DefExpr)
@@ -232,13 +320,15 @@ namespace Magic.Kernel.Interpretation
                         continue;
                     }
                     await ExecuteAsync(command);
+                    await MaybeDebugPauseAfterInstructionAsync(command).ConfigureAwait(false);
                 }
                 return new InterpretationResult { Success = true };
             }
-            finally
+            catch (OperationCanceledException)
             {
-                ExecutionContext.CurrentUnit = previousUnit;
+                return new InterpretationResult { Success = false };
             }
+            finally { }
         }
 
         private void PushCallArgs(Processor.CallInfo? callInfo)
@@ -650,7 +740,9 @@ namespace Magic.Kernel.Interpretation
                 {
                     MemoryContext.Write(memoryAddress, value, IsExecutingEntryPoint(), _configuration?.Runtime != null);
                 },
-                vaultReader);
+                vaultReader,
+                _unit,
+                () => CurrentSocketContext);
         }
 
         private bool IsExecutingEntryPoint()
@@ -675,6 +767,7 @@ namespace Magic.Kernel.Interpretation
                     "Type" => po.Value,
                     "IntLiteral" => po.Value,
                     "StringLiteral" => po.Value,
+                    "AddressLiteral" => new AddressLiteral(po.Value?.ToString() ?? string.Empty),
                     "LambdaArg" => _lambdaArgsStack.Count > 0 && po.Value is int argIndex && argIndex >= 0 && argIndex < _lambdaArgsStack.Peek().Length
                         ? _lambdaArgsStack.Peek()[argIndex]
                         : null,
@@ -723,17 +816,8 @@ namespace Magic.Kernel.Interpretation
             var obj = Stack[Stack.Count - 1];
             Stack.RemoveAt(Stack.Count - 1);
             var methodName = command.Operand1 as string ?? "";
-            var previous = ExecutionContext.CurrentInterpreter;
-            ExecutionContext.CurrentInterpreter = this;
-            try
-            {
-                var result = await Hal.CallObjAsync(obj, methodName, args).ConfigureAwait(false);
-                Stack.Add(result!);
-            }
-            finally
-            {
-                ExecutionContext.CurrentInterpreter = previous;
-            }
+            var result = await Hal.CallObjAsync(obj, methodName, args, BuildCallContext()).ConfigureAwait(false);
+            Stack.Add(result!);
         }
 
         private Task ExecuteGetObjAsync(Command command)
@@ -971,7 +1055,7 @@ namespace Magic.Kernel.Interpretation
             {
                 var single = Stack[Stack.Count - 1];
                 Stack.RemoveAt(Stack.Count - 1);
-                Hal.StreamWaitAsync(ExecutionContext.CurrentUnit, null, single);
+                Hal.StreamWaitAsync(_unit, null, single);
                 return Task.CompletedTask;
             }
 
@@ -988,8 +1072,20 @@ namespace Magic.Kernel.Interpretation
             Stack.RemoveAt(Stack.Count - 1);
             var fnName = fnObj?.ToString() ?? string.Empty;
 
-            Hal.StreamWaitAsync(ExecutionContext.CurrentUnit, fnName, args);
+            Hal.StreamWaitAsync(_unit, fnName, args);
             return Task.CompletedTask;
+        }
+
+        private Core.ExecutionCallContext BuildCallContext()
+        {
+            return new Core.ExecutionCallContext
+            {
+                Unit = _unit,
+                Interpreter = this,
+                CurrentDatabase = null,
+                IsExecutingQueryExpr = _queryExecutionDepth > 0,
+                CurrentSocket = CurrentSocketContext
+            };
         }
 
         private async Task ExecuteStreamWaitObjAsync(Command command)

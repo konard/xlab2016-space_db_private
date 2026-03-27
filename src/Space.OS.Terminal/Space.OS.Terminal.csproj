@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Libs\Magic.Kernel.Terminal\Magic.Kernel.Terminal.csproj" />
+    <ProjectReference Include="..\Libs\Magic.Kernel\Magic.Kernel.csproj" />
+    <ProjectReference Include="..\Libs\SpaceDb.RocksDb\SpaceDb.RocksDb.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AvalonEdit" Version="6.3.0.90" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+
+</Project>

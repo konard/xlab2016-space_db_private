@@ -165,7 +165,7 @@ namespace Magic.Kernel.Runtime
             }
             catch (Exception ex)
             {
-                var prefix = Magic.Kernel.Interpretation.ExecutionContext.GetPrefix(task.Unit);
+                var prefix = Core.ExecutionCallContext.GetPrefix(task.Unit);
                 try
                 {
                     if (Console.CursorLeft != 0)

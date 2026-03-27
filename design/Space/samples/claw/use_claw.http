@@ -1,0 +1,26 @@
+@host = http://localhost:8080/
+### health
+GET {{host}}health
+
+### Call claw entrypoint (uses token returned by /authenticate)
+# @name entrypointReq
+POST {{host}}entrypoint
+Content-Type: application/json
+Authorization: {{loginReq.response.body.token}}
+
+{
+  "method": "call",
+  "data": {
+    "command": "hello_world"
+  }
+}
+
+### Get JWT access token by password and user login
+# @name loginReq
+POST {{host}}authenticate
+Content-Type: application/json
+
+{
+    "username":"claw_admin",
+    "password":"~f57h@v-8HGvvFGWSQ+nvd9584"
+}

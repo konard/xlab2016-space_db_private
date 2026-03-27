@@ -27,6 +27,14 @@ namespace Magic.Kernel.Compilation
                 output.Add(text);
         }
 
+        private void AddRangeAsStatementWithSourceLine(int start, int end, List<(string Text, int Line)> output)
+        {
+            if (start < 0 || end <= start) return;
+            var text = NormalizeInstructionText(CurrentScanner.Slice(start, end).Trim());
+            if (!string.IsNullOrWhiteSpace(text))
+                output.Add((text, CurrentScanner.GetLineNumber(start)));
+        }
+
         private static string NormalizeInstructionText(string text)
         {
             if (string.IsNullOrWhiteSpace(text)) return "";
@@ -81,9 +89,9 @@ namespace Magic.Kernel.Compilation
         }
 
         /// <summary>Потребляет обычный блок (после "{") и возвращает список statement-строк до парной "}".</summary>
-        private List<string> ConsumeStatementBlockLines()
+        private List<(string Text, int Line)> ConsumeStatementBlockLines()
         {
-            var result = new List<string>();
+            var result = new List<(string Text, int Line)>();
             var depth = 1;
             var currentStart = -1;
             var currentEnd = -1;
@@ -93,7 +101,7 @@ namespace Magic.Kernel.Compilation
                 var tok = CurrentScanner.Scan();
                 if (tok.Kind == TokenKind.EndOfInput)
                 {
-                    AddRangeAsStatement(currentStart, currentEnd, result);
+                    AddRangeAsStatementWithSourceLine(currentStart, currentEnd, result);
                     break;
                 }
 
@@ -110,7 +118,7 @@ namespace Magic.Kernel.Compilation
                     depth--;
                     if (depth == 0)
                     {
-                        AddRangeAsStatement(currentStart, currentEnd, result);
+                        AddRangeAsStatementWithSourceLine(currentStart, currentEnd, result);
                         break;
                     }
                     if (currentStart < 0) currentStart = tok.Start;
@@ -133,7 +141,7 @@ namespace Magic.Kernel.Compilation
                             continue;
                         }
                     }
-                    AddRangeAsStatement(currentStart, currentEnd, result);
+                    AddRangeAsStatementWithSourceLine(currentStart, currentEnd, result);
                     currentStart = -1;
                     currentEnd = -1;
                     continue;
@@ -260,8 +268,8 @@ namespace Magic.Kernel.Compilation
             // statement-block = { statements }
             var statementLines = ConsumeStatementBlockLines(); // consumes outer "}"
             instructions = statementLines
-                .Where(line => !string.IsNullOrWhiteSpace(line))
-                .Select(line => (AstNode)new StatementLineNode { Text = line })
+                .Where(s => !string.IsNullOrWhiteSpace(s.Text))
+                .Select(s => (AstNode)new StatementLineNode { Text = s.Text, SourceLine = s.Line })
                 .ToList();
             return true;
         }
@@ -511,20 +519,22 @@ namespace Magic.Kernel.Compilation
                 return false;
             }
 
-            structure.Prelude.Add(new StatementLineNode { Text = text });
+            structure.Prelude.Add(new StatementLineNode { Text = text, SourceLine = CurrentScanner.GetLineNumber(start) });
             structure.IsProgramStructure = true;
             return true;
         }
 
-        private string ConsumeLineToUnprocessed()
+        private (string Text, int Line) ConsumeLineToUnprocessedWithLine()
         {
-            if (CurrentScanner.Current.IsEndOfInput) return "";
+            if (CurrentScanner.Current.IsEndOfInput) return ("", 0);
             var start = CurrentScanner.Current.Start;
+            var lineNo = CurrentScanner.GetLineNumber(start);
             while (!CurrentScanner.Current.IsEndOfInput && CurrentScanner.Current.Kind != TokenKind.Newline)
                 CurrentScanner.Scan();
             var end = CurrentScanner.Current.IsEndOfInput ? CurrentScanner.SourceLength : CurrentScanner.Current.Start;
             if (CurrentScanner.Current.Kind == TokenKind.Newline) CurrentScanner.Scan();
-            return CurrentScanner.Slice(start, end).Trim();
+            var text = CurrentScanner.Slice(start, end).Trim();
+            return (text, lineNo);
         }
 
         private InstructionNode ParseWithContext(string instructionText)
@@ -548,7 +558,7 @@ namespace Magic.Kernel.Compilation
                 return structure;
             }
             _scanner = new Scanner(source);
-            var unprocessedLines = new List<string>();
+            var unprocessedLines = new List<(string Text, int Line)>();
 
             while (!CurrentScanner.Current.IsEndOfInput)
             {
@@ -565,9 +575,9 @@ namespace Magic.Kernel.Compilation
                 if (TryParseTopLevelSchemaDeclaration(structure)) continue;
                 if (TryParseTopLevelCall(structure)) continue;
 
-                var line = ConsumeLineToUnprocessed();
+                var (line, lineNo) = ConsumeLineToUnprocessedWithLine();
                 if (!string.IsNullOrWhiteSpace(line) && !structure.IsProgramStructure)
-                    unprocessedLines.Add(line);
+                    unprocessedLines.Add((line, lineNo));
             }
 
             if (!structure.IsProgramStructure)
@@ -575,7 +585,17 @@ namespace Magic.Kernel.Compilation
                 if (unprocessedLines.Count == 0)
                     structure.EntryPoint = ParseAsInstructionSet(source).Cast<AstNode>().ToList();
                 else
-                    structure.EntryPoint = unprocessedLines.Select(ParseWithContext).Cast<AstNode>().ToList();
+                {
+                    var nodes = new List<AstNode>();
+                    foreach (var (lt, ln) in unprocessedLines)
+                    {
+                        var node = ParseWithContext(lt);
+                        node.SourceLine = ln;
+                        nodes.Add(node);
+                    }
+
+                    structure.EntryPoint = nodes;
+                }
             }
 
             return structure;
@@ -591,7 +611,9 @@ namespace Magic.Kernel.Compilation
                 var (_, trimmedLine) = reader.GetLine(i);
                 if (string.IsNullOrWhiteSpace(trimmedLine))
                     continue;
-                nodes.Add(_instructionParser.Parse(trimmedLine));
+                var node = _instructionParser.Parse(trimmedLine);
+                node.SourceLine = i + 1;
+                nodes.Add(node);
             }
             return nodes;
         }

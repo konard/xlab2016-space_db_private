@@ -25,12 +25,14 @@ namespace Magic.Kernel.Devices.Streams.Drivers
         private long _chunkIndex;
         private int _streamWaitPollIntervalMs = 10;
         private CancellationTokenSource? _cts;
+        private readonly string _consolePrefix;
 
-        public OpenAIDriver(string apiToken, string apiBase = "https://api.openai.com", string model = "gpt-4o-mini")
+        public OpenAIDriver(string apiToken, string apiBase = "https://api.openai.com", string model = "gpt-4o-mini", string consolePrefix = "")
         {
             _apiToken = apiToken ?? throw new ArgumentNullException(nameof(apiToken));
             _apiBase = apiBase.TrimEnd('/');
             _model = model;
+            _consolePrefix = consolePrefix ?? string.Empty;
         }
 
         public Task<DeviceOperationResult> OpenAsync()
@@ -86,12 +88,11 @@ namespace Magic.Kernel.Devices.Streams.Drivers
             if (request == null)
                 return DeviceOperationResult.Fail(DeviceOperationState.Failed, "OpenAIInferenceRequest is null");
 
-            var prefix = Magic.Kernel.Interpretation.ExecutionContext.GetPrefix();
             var client = new Magic.Drivers.Inference.OpenAI.OpenAIHttpClient(
                 _apiToken,
                 _apiBase,
                 _model,
-                consolePrefix: prefix,
+                consolePrefix: _consolePrefix,
                 logAction: Console.WriteLine);
 
             await client.SendStreamingAsync(

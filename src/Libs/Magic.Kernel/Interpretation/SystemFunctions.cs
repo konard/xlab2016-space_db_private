@@ -55,13 +55,15 @@ namespace Magic.Kernel.Interpretation
         private readonly Action<MemoryAddress, object?> _memoryWriter;
         private readonly PrintFunctions _printFunctions;
         private readonly IVaultReader _vaultReader;
+        private readonly Compilation.ExecutableUnit? _currentUnit;
+        private readonly Func<Magic.Kernel.Devices.Streams.ClawSocketContext?> _socketAccessor;
 
         public SystemFunctions(KernelConfiguration? configuration, List<object> stack, Dictionary<long, object> memory)
-            : this(configuration, stack, memory, new EnvironmentVaultReader())
+            : this(configuration, stack, memory, new EnvironmentVaultReader(), null, null)
         {
         }
 
-        public SystemFunctions(KernelConfiguration? configuration, List<object> stack, Dictionary<long, object> memory, IVaultReader vaultReader)
+        public SystemFunctions(KernelConfiguration? configuration, List<object> stack, Dictionary<long, object> memory, IVaultReader vaultReader, Compilation.ExecutableUnit? currentUnit = null, Func<Magic.Kernel.Devices.Streams.ClawSocketContext?>? socketAccessor = null)
             : this(
                 configuration,
                 stack,
@@ -81,7 +83,9 @@ namespace Magic.Kernel.Interpretation
 
                     memory[memoryAddress.Index.Value] = value!;
                 },
-                vaultReader)
+                vaultReader,
+                currentUnit,
+                socketAccessor)
         {
         }
 
@@ -90,14 +94,18 @@ namespace Magic.Kernel.Interpretation
             List<object> stack,
             Func<MemoryAddress, (bool Found, object? Value)> memoryReader,
             Action<MemoryAddress, object?> memoryWriter,
-            IVaultReader vaultReader)
+            IVaultReader vaultReader,
+            Compilation.ExecutableUnit? currentUnit,
+            Func<Magic.Kernel.Devices.Streams.ClawSocketContext?>? socketAccessor)
         {
             _configuration = configuration;
             _stack = stack;
             _memoryReader = memoryReader ?? throw new ArgumentNullException(nameof(memoryReader));
             _memoryWriter = memoryWriter ?? throw new ArgumentNullException(nameof(memoryWriter));
-            _printFunctions = new PrintFunctions(configuration, stack, memoryReader);
+            _printFunctions = new PrintFunctions(configuration, stack, memoryReader, currentUnit);
             _vaultReader = vaultReader ?? throw new ArgumentNullException(nameof(vaultReader));
+            _currentUnit = currentUnit;
+            _socketAccessor = socketAccessor ?? (() => null);
         }
 
         private bool TryReadMemory(MemoryAddress memoryAddress, out object? value)
@@ -169,9 +177,9 @@ namespace Magic.Kernel.Interpretation
         /// <summary>Erlang-like spawn: enqueue task (current unit + procedure/function) to runtime TaskQueue. Pushes 0 (ok) on stack.</summary>
         private async Task ExecuteSpawnAsync(CallInfo callInfo)
         {
-            var unit = ExecutionContext.CurrentUnit;
+            var unit = _currentUnit;
             if (unit == null)
-                throw new InvalidOperationException("spawn requires current execution unit (ExecutionContext.CurrentUnit).");
+                throw new InvalidOperationException("spawn requires current execution unit.");
             var runtime = _configuration?.Runtime;
             if (runtime == null)
                 throw new InvalidOperationException("spawn requires KernelConfiguration.Runtime (start kernel with StartKernel).");
@@ -281,7 +289,7 @@ namespace Magic.Kernel.Interpretation
 
             if (string.Equals(symbolic, ":socket", StringComparison.OrdinalIgnoreCase))
             {
-                var socketCtx = Magic.Kernel.Devices.Streams.ClawExecutionContext.CurrentSocket;
+                var socketCtx = _socketAccessor();
                 _stack.Add((object?)socketCtx ?? (object)"");
                 return Task.CompletedTask;
             }
@@ -802,7 +810,7 @@ namespace Magic.Kernel.Interpretation
                     {
                         if (_configuration?.DefaultDisk != null)
                         {
-                            shape = await _configuration.DefaultDisk.GetShape(index, null, Magic.Kernel.Interpretation.ExecutionContext.CurrentUnit?.SpaceName);
+                            shape = await _configuration.DefaultDisk.GetShape(index, null, _currentUnit?.SpaceName);
                         }
                     }
                 }
@@ -848,7 +856,7 @@ namespace Magic.Kernel.Interpretation
                 {
                     foreach (var vertexIndex in shape.VertexIndices)
                     {
-                        var vertex = await _configuration.DefaultDisk.GetVertex(vertexIndex, null, Magic.Kernel.Interpretation.ExecutionContext.CurrentUnit?.SpaceName);
+                        var vertex = await _configuration.DefaultDisk.GetVertex(vertexIndex, null, _currentUnit?.SpaceName);
                         if (vertex?.Position != null)
                         {
                             positions.Add(vertex.Position);
@@ -918,7 +926,7 @@ namespace Magic.Kernel.Interpretation
             }
 
             // Вычисляем пересечение
-            var intersection = await MathFunctions.CalculateIntersectionAsync(shapeA, shapeB, _configuration?.DefaultDisk, Magic.Kernel.Interpretation.ExecutionContext.CurrentUnit?.SpaceName);
+            var intersection = await MathFunctions.CalculateIntersectionAsync(shapeA, shapeB, _configuration?.DefaultDisk, _currentUnit?.SpaceName);
             _stack.Add(intersection);
         }
 
@@ -934,7 +942,7 @@ namespace Magic.Kernel.Interpretation
                 {
                     if (_configuration?.DefaultDisk != null)
                     {
-                        var sn = Magic.Kernel.Interpretation.ExecutionContext.CurrentUnit?.SpaceName;
+                        var sn = _currentUnit?.SpaceName;
                         switch (entityType)
                         {
                             case EntityType.Vertex:

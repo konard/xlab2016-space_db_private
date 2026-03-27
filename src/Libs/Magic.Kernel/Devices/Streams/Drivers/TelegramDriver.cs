@@ -20,13 +20,15 @@ namespace Magic.Kernel.Devices.Streams.Drivers
         private TelegramConnection? _connection;
         private CancellationTokenSource? _receiveCts;
         private int _streamWaitPollIntervalMs = 50;
+        private readonly string _consolePrefix;
 
         /// <param name="streamWaitPollIntervalMs">Delay between queue checks when waiting for a message in ReadChunkAsync (default 50).</param>
-        public TelegramDriver(string botToken, long defaultChatId = 0, int streamWaitPollIntervalMs = 50)
+        public TelegramDriver(string botToken, long defaultChatId = 0, int streamWaitPollIntervalMs = 50, string consolePrefix = "")
         {
             _botToken = botToken ?? throw new ArgumentNullException(nameof(botToken));
             _defaultChatId = defaultChatId;
             _streamWaitPollIntervalMs = Math.Clamp(streamWaitPollIntervalMs, 10, 10_000);
+            _consolePrefix = consolePrefix ?? string.Empty;
         }
 
         public Task<DeviceOperationResult> OpenAsync()
@@ -79,9 +81,7 @@ namespace Magic.Kernel.Devices.Streams.Drivers
             if (!_opened)
                 return (DeviceOperationResult.Fail(DeviceOperationState.InvalidState, "Not open"), null);
 
-            var prefix = Magic.Kernel.Interpretation.ExecutionContext.GetPrefix();
-
-            Console.WriteLine(prefix + "TelegramDriver: Waiting for incoming stream...");
+            Console.WriteLine(_consolePrefix + "TelegramDriver: Waiting for incoming stream...");
 
             while (true)
             {

@@ -24,7 +24,7 @@ namespace Magic.Kernel.Data
         {
             var name = methodName?.Trim() ?? "";
             var (queryArgs, returnsQueryExpr) = QueryExpr.SplitQueryControl(args);
-            if (!global::Magic.Kernel.Interpretation.ExecutionContext.IsExecutingQueryExpr &&
+            if (!(ExecutionCallContext?.IsExecutingQueryExpr ?? false) &&
                 (string.Equals(name, "where", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(name, "max", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(name, "find", StringComparison.OrdinalIgnoreCase))
@@ -57,16 +57,16 @@ namespace Magic.Kernel.Data
                 if (queryArgs == null || queryArgs.Length == 0 || queryArgs[0] is not LambdaValue lambda)
                     throw new ArgumentException("Table.where requires one lambda argument.");
 
-                var runtimeDb = (Database?.Device as Devices.Store.DatabaseDevice) ?? global::Magic.Kernel.Interpretation.ExecutionContext.CurrentDatabase;
+                var runtimeDb = (Database?.Device as Devices.Store.DatabaseDevice) ?? ExecutionCallContext?.CurrentDatabase;
                 var postgres = runtimeDb?.Generalizations?.OfType<Postgres>().FirstOrDefault();
                 if (postgres != null && lambda.ExprTree != null)
                 {
                     return CloneForQuery(filteredRows: null, filterExpr: CombineFilterExpr(FilterExpr, lambda.ExprTree));
                 }
 
-                var interpreter = global::Magic.Kernel.Interpretation.ExecutionContext.CurrentInterpreter;
+                var interpreter = ExecutionCallContext?.Interpreter;
                 if (interpreter == null)
-                    throw new InvalidOperationException("Table.where(predicate) requires ExecutionContext.CurrentInterpreter when not using Db.");
+                    throw new InvalidOperationException("Table.where(predicate) requires interpreter context when not using Db.");
 
                 var filteredRows = new List<Dictionary<string, object?>>();
                 foreach (var row in PendingRows)
@@ -84,7 +84,7 @@ namespace Magic.Kernel.Data
                 if (queryArgs == null || queryArgs.Length == 0 || queryArgs[0] is not LambdaValue lambda)
                     return false;
                 // If this table is attached to a schema Database with runtime Device and lambda has ExprTree: run predicate as SQL (any = at least one row)
-                var runtimeDb = (Database?.Device as Devices.Store.DatabaseDevice) ?? global::Magic.Kernel.Interpretation.ExecutionContext.CurrentDatabase;
+                var runtimeDb = (Database?.Device as Devices.Store.DatabaseDevice) ?? ExecutionCallContext?.CurrentDatabase;
                 if (runtimeDb != null && lambda.ExprTree != null)
                 {
                     var postgres = runtimeDb.Generalizations?.OfType<Postgres>().FirstOrDefault();
@@ -95,9 +95,9 @@ namespace Magic.Kernel.Data
                     }
                 }
                 // In-memory: iterate PendingRows and invoke lambda per row
-                var interpreter = global::Magic.Kernel.Interpretation.ExecutionContext.CurrentInterpreter;
+                var interpreter = ExecutionCallContext?.Interpreter;
                 if (interpreter == null)
-                    throw new InvalidOperationException("Table.any(predicate) requires ExecutionContext.CurrentInterpreter when not using Db.");
+                    throw new InvalidOperationException("Table.any(predicate) requires interpreter context when not using Db.");
                 var rows = PendingRows;
                 foreach (var row in rows)
                 {
@@ -113,9 +113,9 @@ namespace Magic.Kernel.Data
                 if (queryArgs == null || queryArgs.Length == 0 || queryArgs[0] is not LambdaValue lambda)
                     return null;
 
-                var interpreter = global::Magic.Kernel.Interpretation.ExecutionContext.CurrentInterpreter;
+                var interpreter = ExecutionCallContext?.Interpreter;
                 if (interpreter == null)
-                    throw new InvalidOperationException("Table.find(predicate) requires ExecutionContext.CurrentInterpreter when not using Db.");
+                    throw new InvalidOperationException("Table.find(predicate) requires interpreter context when not using Db.");
 
                 var rows = PendingRows;
                 foreach (var row in rows)
@@ -133,7 +133,7 @@ namespace Magic.Kernel.Data
                 if (queryArgs == null || queryArgs.Length == 0 || queryArgs[0] is not LambdaValue selectorLambda)
                     throw new ArgumentException("Table.max requires one lambda argument.");
 
-                var runtimeDb = (Database?.Device as Devices.Store.DatabaseDevice) ?? global::Magic.Kernel.Interpretation.ExecutionContext.CurrentDatabase;
+                var runtimeDb = (Database?.Device as Devices.Store.DatabaseDevice) ?? ExecutionCallContext?.CurrentDatabase;
                 if (runtimeDb != null && selectorLambda.ExprTree != null)
                 {
                     var postgres = runtimeDb.Generalizations?.OfType<Postgres>().FirstOrDefault();
@@ -143,9 +143,9 @@ namespace Magic.Kernel.Data
                     }
                 }
 
-                var interpreter = global::Magic.Kernel.Interpretation.ExecutionContext.CurrentInterpreter;
+                var interpreter = ExecutionCallContext?.Interpreter;
                 if (interpreter == null)
-                    throw new InvalidOperationException("Table.max(selector) requires ExecutionContext.CurrentInterpreter when not using Db.");
+                    throw new InvalidOperationException("Table.max(selector) requires interpreter context when not using Db.");
 
                 long max = 0;
                 var hasValue = false;
@@ -170,7 +170,7 @@ namespace Magic.Kernel.Data
                 if (queryArgs == null || queryArgs.Length < 2 || queryArgs[0] is not LambdaValue whereLambda || queryArgs[1] is not string columnName)
                     throw new ArgumentException("Table.maxWhere requires (whereLambda, columnName:string) arguments.");
 
-                var runtimeDb = (Database?.Device as Devices.Store.DatabaseDevice) ?? global::Magic.Kernel.Interpretation.ExecutionContext.CurrentDatabase;
+                var runtimeDb = (Database?.Device as Devices.Store.DatabaseDevice) ?? ExecutionCallContext?.CurrentDatabase;
                 if (runtimeDb != null && whereLambda.ExprTree != null)
                 {
                     var postgres = runtimeDb.Generalizations?.OfType<Postgres>().FirstOrDefault();
@@ -182,9 +182,9 @@ namespace Magic.Kernel.Data
                 }
 
                 // In-memory fallback over PendingRows using interpreter.
-                var interpreter = global::Magic.Kernel.Interpretation.ExecutionContext.CurrentInterpreter;
+                var interpreter = ExecutionCallContext?.Interpreter;
                 if (interpreter == null)
-                    throw new InvalidOperationException("Table.maxWhere(predicate, selector) requires ExecutionContext.CurrentInterpreter when not using Db.");
+                    throw new InvalidOperationException("Table.maxWhere(predicate, selector) requires interpreter context when not using Db.");
 
                 long max = 0;
                 var hasValue = false;
@@ -240,12 +240,23 @@ namespace Magic.Kernel.Data
             var sourceTable = query.SourceTable;
             var calls = QueryExpr.Decompose(query.Root);
 
-            var runtimeDb = (sourceTable.Database?.Device as Devices.Store.DatabaseDevice) ?? global::Magic.Kernel.Interpretation.ExecutionContext.CurrentDatabase;
+            var runtimeDb = (sourceTable.Database?.Device as Devices.Store.DatabaseDevice) ?? sourceTable.ExecutionCallContext?.CurrentDatabase;
             var postgres = runtimeDb?.Generalizations?.OfType<Postgres>().FirstOrDefault();
             if (postgres != null && CanExecuteWithDriver(calls))
                 return await postgres.ExecuteQueryAsync(sourceTable, query).ConfigureAwait(false);
 
-            global::Magic.Kernel.Interpretation.ExecutionContext.EnterQueryExprExecution();
+            var previous = sourceTable.ExecutionCallContext;
+            if (previous != null)
+            {
+                sourceTable.ExecutionCallContext = new Core.ExecutionCallContext
+                {
+                    Unit = previous.Unit,
+                    Interpreter = previous.Interpreter,
+                    CurrentDatabase = previous.CurrentDatabase,
+                    CurrentSocket = previous.CurrentSocket,
+                    IsExecutingQueryExpr = true
+                };
+            }
             try
             {
                 object? current = sourceTable;
@@ -257,10 +268,7 @@ namespace Magic.Kernel.Data
                 }
                 return current;
             }
-            finally
-            {
-                global::Magic.Kernel.Interpretation.ExecutionContext.ExitQueryExprExecution();
-            }
+            finally { sourceTable.ExecutionCallContext = previous; }
         }
 
         private static Dictionary<string, object?> ToDictionary(object? row)

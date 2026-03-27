@@ -1034,16 +1034,9 @@ namespace Magic.Kernel.Tests.Interpretation
                 new Command { Opcode = Opcodes.Equals }
             };
             var lambda = new LambdaValue(body);
-            Magic.Kernel.Interpretation.ExecutionContext.CurrentInterpreter = _interpreter;
-            try
-            {
-                var result = await table.CallObjAsync("any", new object?[] { lambda });
-                result.Should().Be(true);
-            }
-            finally
-            {
-                Magic.Kernel.Interpretation.ExecutionContext.CurrentInterpreter = null;
-            }
+            table.ExecutionCallContext = new Magic.Kernel.Core.ExecutionCallContext { Interpreter = _interpreter };
+            var result = await table.CallObjAsync("any", new object?[] { lambda });
+            result.Should().Be(true);
         }
 
         [Fact]
@@ -1061,16 +1054,9 @@ namespace Magic.Kernel.Tests.Interpretation
                 new Command { Opcode = Opcodes.Equals }
             };
             var lambda = new LambdaValue(body);
-            Magic.Kernel.Interpretation.ExecutionContext.CurrentInterpreter = _interpreter;
-            try
-            {
-                var result = await table.CallObjAsync("any", new object?[] { lambda });
-                result.Should().Be(false);
-            }
-            finally
-            {
-                Magic.Kernel.Interpretation.ExecutionContext.CurrentInterpreter = null;
-            }
+            table.ExecutionCallContext = new Magic.Kernel.Core.ExecutionCallContext { Interpreter = _interpreter };
+            var result = await table.CallObjAsync("any", new object?[] { lambda });
+            result.Should().Be(false);
         }
 
         [Fact]
@@ -1119,22 +1105,15 @@ namespace Magic.Kernel.Tests.Interpretation
                 new Command { Opcode = Opcodes.Equals }
             });
 
-            Magic.Kernel.Interpretation.ExecutionContext.CurrentInterpreter = _interpreter;
-            try
-            {
-                var query = await table.CallObjAsync("find", new object?[] { lambda });
-                query.Should().BeOfType<QueryExpr>();
-                var result = await ((QueryExpr)query!).AwaitObjAsync();
-                result.Should().BeOfType<Dictionary<string, object?>>();
-                var row = (Dictionary<string, object?>)result!;
-                row["Id"].Should().Be(15L);
-                row["Time"].Should().Be(100L);
-                row.ContainsKey(Magic.Kernel.Data.Table.PendingWriteModeKey).Should().BeFalse();
-            }
-            finally
-            {
-                Magic.Kernel.Interpretation.ExecutionContext.CurrentInterpreter = null;
-            }
+            table.ExecutionCallContext = new Magic.Kernel.Core.ExecutionCallContext { Interpreter = _interpreter };
+            var query = await table.CallObjAsync("find", new object?[] { lambda });
+            query.Should().BeOfType<QueryExpr>();
+            var result = await ((QueryExpr)query!).AwaitObjAsync();
+            result.Should().BeOfType<Dictionary<string, object?>>();
+            var row = (Dictionary<string, object?>)result!;
+            row["Id"].Should().Be(15L);
+            row["Time"].Should().Be(100L);
+            row.ContainsKey(Magic.Kernel.Data.Table.PendingWriteModeKey).Should().BeFalse();
         }
 
         [Fact]
@@ -1161,22 +1140,15 @@ namespace Magic.Kernel.Tests.Interpretation
                 new Command { Opcode = Opcodes.GetObj }
             });
 
-            Magic.Kernel.Interpretation.ExecutionContext.CurrentInterpreter = _interpreter;
-            try
-            {
-                var filtered = await table.CallObjAsync("where", new object?[] { whereLambda });
-                filtered.Should().BeOfType<QueryExpr>();
+            table.ExecutionCallContext = new Magic.Kernel.Core.ExecutionCallContext { Interpreter = _interpreter };
+            var filtered = await table.CallObjAsync("where", new object?[] { whereLambda });
+            filtered.Should().BeOfType<QueryExpr>();
 
-                var resultQuery = await ((QueryExpr)filtered!).CallObjAsync("max", new object?[] { maxLambda });
-                resultQuery.Should().BeOfType<QueryExpr>();
+            var resultQuery = await ((QueryExpr)filtered!).CallObjAsync("max", new object?[] { maxLambda });
+            resultQuery.Should().BeOfType<QueryExpr>();
 
-                var result = await ((QueryExpr)resultQuery!).AwaitObjAsync();
-                result.Should().Be(42L);
-            }
-            finally
-            {
-                Magic.Kernel.Interpretation.ExecutionContext.CurrentInterpreter = null;
-            }
+            var result = await ((QueryExpr)resultQuery!).AwaitObjAsync();
+            result.Should().Be(42L);
         }
 
         [Fact]
@@ -1203,22 +1175,15 @@ namespace Magic.Kernel.Tests.Interpretation
                 new Command { Opcode = Opcodes.GetObj }
             });
 
-            Magic.Kernel.Interpretation.ExecutionContext.CurrentInterpreter = _interpreter;
-            try
-            {
-                var query = await table.CallObjAsync("where", new object?[] { whereLambda, 1L });
-                query.Should().BeOfType<QueryExpr>();
+            table.ExecutionCallContext = new Magic.Kernel.Core.ExecutionCallContext { Interpreter = _interpreter };
+            var query = await table.CallObjAsync("where", new object?[] { whereLambda, 1L });
+            query.Should().BeOfType<QueryExpr>();
 
-                var finalQuery = await ((QueryExpr)query!).CallObjAsync("max", new object?[] { maxLambda, 0L });
-                finalQuery.Should().BeOfType<QueryExpr>();
+            var finalQuery = await ((QueryExpr)query!).CallObjAsync("max", new object?[] { maxLambda, 0L });
+            finalQuery.Should().BeOfType<QueryExpr>();
 
-                var result = await ((QueryExpr)finalQuery!).AwaitObjAsync();
-                result.Should().Be(42L);
-            }
-            finally
-            {
-                Magic.Kernel.Interpretation.ExecutionContext.CurrentInterpreter = null;
-            }
+            var result = await ((QueryExpr)finalQuery!).AwaitObjAsync();
+            result.Should().Be(42L);
         }
 
         #endregion

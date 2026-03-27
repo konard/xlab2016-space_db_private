@@ -21,6 +21,8 @@ namespace Magic.Kernel.Devices.Store
             {
                 if (g is Postgres postgres)
                     postgres.Database = this;
+                if (g is Core.DefType dt)
+                    dt.ExecutionCallContext = ExecutionCallContext;
                 var result = await g.CallObjAsync(methodName, args).ConfigureAwait(false);
                 list.Add(result);
             }

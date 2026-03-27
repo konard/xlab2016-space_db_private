@@ -1,6 +1,6 @@
 ﻿@AGIASM 1
 @AGI 0.0.1
-program clients_claw
+program client_claw
 module claw
 procedure call
 pop
@@ -37,10 +37,18 @@ push [7]
 equals
 pop [8]
 cmp [8], 0
-je switch_arm_end_3003
-jmp switch_end_2002
-label switch_arm_end_3003
-label switch_end_2002
+je switch_arm_end_3002
+push [2]
+push string: "name"
+getobj
+pop [9]
+call format, 0: "Hello world from Claw {0}", [9]
+push 1
+call println
+pop
+jmp switch_end_2001
+label switch_arm_end_3002
+label switch_end_2001
 ret
 procedure Main
 push vault

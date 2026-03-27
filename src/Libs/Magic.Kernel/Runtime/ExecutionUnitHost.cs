@@ -84,7 +84,7 @@ namespace Magic.Kernel.Runtime
                 var result = await _kernel.InterpreteRootAsync(unit).ConfigureAwait(false);
                 if (!result.Success)
                 {
-                    var prefix = Magic.Kernel.Interpretation.ExecutionContext.GetPrefix(unit);
+                    var prefix = Core.ExecutionCallContext.GetPrefix(unit);
                     Console.WriteLine($"[{DateTime.UtcNow:o}] {prefix}interpretation finished with Success = false.");
                 }
 
@@ -92,7 +92,7 @@ namespace Magic.Kernel.Runtime
             }
             catch (Exception ex)
             {
-                var prefix = Magic.Kernel.Interpretation.ExecutionContext.GetPrefix();
+                var prefix = Core.ExecutionCallContext.GetPrefix();
                 Console.WriteLine($"[{DateTime.UtcNow:o}] {prefix}failed to start interpreter thread: {ex}");
                 return false;
             }

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Threading.Tasks;
 using Magic.Kernel.Core;
 using Magic.Kernel.Devices;
@@ -11,10 +12,35 @@ namespace Magic.Kernel.Devices.Streams
     /// <summary>Base for stream devices that are also def-types (Call by method name). Implements CallAsync once; subclasses implement IStreamDevice.</summary>
     public abstract class DefStream : IStreamDevice, IDefType
     {
+        private static readonly ConcurrentDictionary<int, WeakReference<DefStream>> Registry = new();
+
         public long? Index { get; set; }
         public string Name { get; set; } = "";
         public StructurePosition? Position { get; set; }
         public List<IDefType> Generalizations { get; set; } = new List<IDefType>();
+        public ExecutionCallContext? ExecutionCallContext { get; set; }
+
+        protected DefStream()
+        {
+            Registry[GetHashCode()] = new WeakReference<DefStream>(this);
+        }
+
+        public static IReadOnlyList<DefStream> GetActiveStreams()
+        {
+            var list = new List<DefStream>();
+            foreach (var item in Registry.ToArray())
+            {
+                if (item.Value.TryGetTarget(out var stream))
+                {
+                    list.Add(stream);
+                    continue;
+                }
+
+                Registry.TryRemove(item.Key, out _);
+            }
+
+            return list;
+        }
 
         public abstract Task<DeviceOperationResult> OpenAsync();
         public abstract Task<(DeviceOperationResult Result, byte[] Bytes)> ReadAsync();

@@ -312,24 +312,13 @@ namespace Magic.Kernel.Compilation
                 {
                     "Type" => "push " + (po.Value as string ?? ""),
                     "IntLiteral" => "push " + (po.Value is long l ? l.ToString() : po.Value?.ToString() ?? "0"),
-                    "StringLiteral" => BuildFormattedStringPush(po.Value as string ?? ""),
+                    "StringLiteral" => "push string: \"" + EscapeString(po.Value as string ?? "") + "\"",
+                    "AddressLiteral" => "push address: \"" + EscapeString(po.Value as string ?? "") + "\"",
                     "LambdaArg" => "push lambda: arg" + (po.Value is int i ? i.ToString() : "0"),
                     _ => "push [0]"
                 };
             }
             return "push [0]";
-        }
-
-        private static string BuildFormattedStringPush(string value)
-        {
-            // Compiler uses unary '&' for procedure references (e.g. &call).
-            // In runtime it's still a plain string (the '&' may be stripped by device bindings),
-            // but in text dumps we prefer making it explicit as an address-like literal.
-            if (value.StartsWith("&", StringComparison.Ordinal) && value.Length > 1)
-            {
-                return "push address: \"" + EscapeString(value.Substring(1)) + "\"";
-            }
-            return "push string: \"" + EscapeString(value) + "\"";
         }
 
         private static string EscapeString(string s)

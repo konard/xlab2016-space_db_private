@@ -277,9 +277,7 @@ namespace Magic.Kernel.Compilation
             }
             if (_scanner.Current.Kind == TokenKind.Identifier && _scanner.Current.Value.Equals("address", StringComparison.OrdinalIgnoreCase))
             {
-                // Text dump helper: push address: "call"
-                // Under the hood it's still represented as a string literal with leading '&'
-                // so existing device bindings (e.g. Claw) continue to work.
+                // push address: "call"
                 _scanner.Scan(); // consume "address"
                 if (_scanner.Current.Kind == TokenKind.Colon)
                     _scanner.Scan(); // consume optional ":"
@@ -287,7 +285,7 @@ namespace Magic.Kernel.Compilation
                 var strTok = Expect(TokenKind.StringLiteral);
                 return new List<ParameterNode>
                 {
-                    new StringParameterNode { Name = "string", Value = "&" + strTok.Value }
+                    new AddressLiteralParameterNode { Name = "address", Address = strTok.Value }
                 };
             }
             if (_scanner.Current.Kind == TokenKind.Number)

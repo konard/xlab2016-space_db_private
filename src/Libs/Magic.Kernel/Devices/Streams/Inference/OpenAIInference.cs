@@ -17,16 +17,16 @@ namespace Magic.Kernel.Devices.Streams.Inference
         /// <summary>Model name to use for completions.</summary>
         public string Model { get; set; } = "gpt-4o-mini";
 
-        protected override IStreamDevice CreateDriver(string apiToken)
+        protected override IStreamDevice CreateDriver(string apiToken, string consolePrefix)
         {
-            return new OpenAIDriver(apiToken, ApiBase, Model);
+            return new OpenAIDriver(apiToken, ApiBase, Model, consolePrefix);
         }
 
         protected override async Task<object?> WriteRequestAsync(object? payload)
         {
             var request = BuildRequest(payload);
             // Start streaming in the background via OpenAIDriver.WriteAsync (it owns the queue).
-            var driver = new OpenAIDriver(Token, ApiBase, Model);
+            var driver = new OpenAIDriver(Token, ApiBase, Model, ExecutionCallContext?.GetPrefix() ?? string.Empty);
             await driver.OpenAsync().ConfigureAwait(false);
 
             var requestBytes = JsonSerializer.SerializeToUtf8Bytes(request);

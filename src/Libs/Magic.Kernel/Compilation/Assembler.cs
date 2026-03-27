@@ -498,6 +498,8 @@ namespace Magic.Kernel.Compilation
                 return new PushOperand { Kind = "IntLiteral", Value = idx.Value };
             if (p is StringParameterNode str && (p.Name == "string" || !string.IsNullOrEmpty(str.Value)))
                 return new PushOperand { Kind = "StringLiteral", Value = str.Value ?? "" };
+            if (p is AddressLiteralParameterNode addressLiteral && !string.IsNullOrWhiteSpace(addressLiteral.Address))
+                return new PushOperand { Kind = "AddressLiteral", Value = addressLiteral.Address };
             if (p is LambdaArgParameterNode lambdaArg)
                 return new PushOperand { Kind = "LambdaArg", Value = lambdaArg.Index };
             return new MemoryAddress { Index = 0 };

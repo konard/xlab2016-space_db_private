@@ -227,11 +227,29 @@ namespace Magic.Kernel.Core.OS
 
         /// <summary>CallObj: invokes methodName on obj with args. Obj must implement IDefType.</summary>
         /// <exception cref="UnknownTypeException">When obj does not implement IDefType.</exception>
-        public static async Task<object?> CallObjAsync(object? obj, string? methodName, object?[] args)
+        public static async Task<object?> CallObjAsync(object? obj, string? methodName, object?[] args, ExecutionCallContext? context = null)
         {
             if (obj is not IDefType type)
                 throw new UnknownTypeException(obj);
-            return await type.CallObjAsync(methodName ?? "", args ?? Array.Empty<object?>()).ConfigureAwait(false);
+            DefType? defType = obj as DefType;
+            DefStream? defStream = obj as DefStream;
+            var previousDefTypeContext = defType?.ExecutionCallContext;
+            var previousDefStreamContext = defStream?.ExecutionCallContext;
+            if (defType != null)
+                defType.ExecutionCallContext = context;
+            if (defStream != null)
+                defStream.ExecutionCallContext = context;
+            try
+            {
+                return await type.CallObjAsync(methodName ?? "", args ?? Array.Empty<object?>()).ConfigureAwait(false);
+            }
+            finally
+            {
+                if (defType != null)
+                    defType.ExecutionCallContext = previousDefTypeContext;
+                if (defStream != null)
+                    defStream.ExecutionCallContext = previousDefStreamContext;
+            }
         }
 
         /// <summary>AwaitObj: awaits def-object (e.g. DefStream returns this). Obj must implement IDefType.</summary>
@@ -291,13 +309,14 @@ namespace Magic.Kernel.Core.OS
                 case "printd":
                 {
                     // Debug variant: includes execution prefix and a clear wrapper.
-                    var prefix = Magic.Kernel.Interpretation.ExecutionContext.GetPrefix(unit);
+                    var prefix = ExecutionCallContext.GetPrefix(unit);
                     var display = value is string s
                         ? s
                         : (value is System.Collections.IDictionary or System.Collections.IEnumerable && value is not string
                             ? JsonSerializer.Serialize(value)
                             : value?.ToString() ?? "");
                     Console.Write(prefix + "Streamwait output: " + display);
+                    Console.Out.Flush();
                     if (unit != null)
                         unit.RuntimeOutputs.Add(value);
                     break;

@@ -1,0 +1,82 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Space.OS.Terminal2.SplashWindow"
+        SystemDecorations="None"
+        CanResize="False"
+        Width="980"
+        Height="620"
+        ShowInTaskbar="False"
+        Topmost="True"
+        Background="Transparent"
+        TransparencyLevelHint="Transparent"
+        WindowStartupLocation="CenterScreen">
+
+    <Border CornerRadius="20" Background="#050814" BorderBrush="#2B3A75" BorderThickness="1">
+        <Panel>
+            <!-- Radial gradient background -->
+            <Border>
+                <Border.Background>
+                    <RadialGradientBrush Center="50%,45%" Radius="90%">
+                        <GradientStop Color="#1A2B66" Offset="0.0" />
+                        <GradientStop Color="#0A1134" Offset="0.52" />
+                        <GradientStop Color="#040716" Offset="1.0" />
+                    </RadialGradientBrush>
+                </Border.Background>
+            </Border>
+
+            <!-- Decorative gradient ellipses -->
+            <Canvas>
+                <Ellipse Width="340" Height="340"
+                         Canvas.Left="160" Canvas.Top="80"
+                         StrokeThickness="2">
+                    <Ellipse.Stroke>
+                        <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,100%">
+                            <GradientStop Color="#66B7FF" Offset="0" />
+                            <GradientStop Color="#AF7CFF" Offset="1" />
+                        </LinearGradientBrush>
+                    </Ellipse.Stroke>
+                </Ellipse>
+                <Ellipse Width="340" Height="340"
+                         Canvas.Left="460" Canvas.Top="80"
+                         StrokeThickness="2">
+                    <Ellipse.Stroke>
+                        <LinearGradientBrush StartPoint="100%,0%" EndPoint="0%,100%">
+                            <GradientStop Color="#AF7CFF" Offset="0" />
+                            <GradientStop Color="#66B7FF" Offset="1" />
+                        </LinearGradientBrush>
+                    </Ellipse.Stroke>
+                </Ellipse>
+            </Canvas>
+
+            <!-- Title text -->
+            <TextBlock HorizontalAlignment="Center"
+                       Margin="0,350,0,0"
+                       VerticalAlignment="Top"
+                       FontSize="86"
+                       FontWeight="Bold"
+                       Foreground="#EEF3FF"
+                       Text="SPACE" />
+
+            <TextBlock HorizontalAlignment="Center"
+                       Margin="0,452,0,0"
+                       VerticalAlignment="Top"
+                       FontSize="28"
+                       Foreground="#BFD0F9"
+                       Text="JOIN UNIVERSE" />
+
+            <!-- Gradient accent bar at bottom -->
+            <Rectangle Height="3"
+                       VerticalAlignment="Bottom"
+                       Margin="180,0,180,56"
+                       RadiusX="2"
+                       RadiusY="2">
+                <Rectangle.Fill>
+                    <LinearGradientBrush StartPoint="0%,0%" EndPoint="100%,0%">
+                        <GradientStop Color="#4FA6FF" Offset="0" />
+                        <GradientStop Color="#BB6CFF" Offset="1" />
+                    </LinearGradientBrush>
+                </Rectangle.Fill>
+            </Rectangle>
+        </Panel>
+    </Border>
+</Window>

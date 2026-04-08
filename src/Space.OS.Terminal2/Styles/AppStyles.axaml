@@ -1,0 +1,146 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Button global style -->
+    <Style Selector="Button">
+        <Setter Property="Foreground" Value="#EAF1FF" />
+        <Setter Property="Background" Value="#1C2750" />
+        <Setter Property="BorderBrush" Value="#3A4A8A" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Padding" Value="12,6" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="CornerRadius" Value="8" />
+    </Style>
+
+    <Style Selector="Button:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="#273878" />
+        <Setter Property="BorderBrush" Value="#7694FF" />
+    </Style>
+
+    <Style Selector="Button:disabled /template/ ContentPresenter">
+        <Setter Property="Foreground" Value="#5C6A8A" />
+        <Setter Property="Background" Value="#13182E" />
+    </Style>
+
+    <!-- TextBlock global style -->
+    <Style Selector="TextBlock">
+        <Setter Property="Foreground" Value="#EAF1FF" />
+    </Style>
+
+    <!-- CheckBox global style -->
+    <Style Selector="CheckBox">
+        <Setter Property="Foreground" Value="#EAF1FF" />
+    </Style>
+
+    <!-- RadioButton global style -->
+    <Style Selector="RadioButton">
+        <Setter Property="Foreground" Value="#DDE8FF" />
+    </Style>
+
+    <!-- TreeView global style -->
+    <Style Selector="TreeView">
+        <Setter Property="Background" Value="#0D1431" />
+        <Setter Property="Foreground" Value="#EAF1FF" />
+        <Setter Property="BorderBrush" Value="#2B3A75" />
+    </Style>
+
+    <Style Selector="TreeViewItem">
+        <Setter Property="Foreground" Value="#EAF1FF" />
+        <Setter Property="Background" Value="#0D1431" />
+        <Setter Property="Padding" Value="4,2" />
+    </Style>
+
+    <!-- TextBox global style -->
+    <Style Selector="TextBox">
+        <Setter Property="Background" Value="#0E1738" />
+        <Setter Property="Foreground" Value="#EAF1FF" />
+        <Setter Property="BorderBrush" Value="#3A4A8A" />
+        <Setter Property="CaretBrush" Value="#FFFFFF" />
+        <Setter Property="SelectionBrush" Value="#3D57A8" />
+    </Style>
+
+    <!-- DataGrid global style -->
+    <Style Selector="DataGrid">
+        <Setter Property="Background" Value="#111A3F" />
+        <Setter Property="Foreground" Value="#EAF1FF" />
+        <Setter Property="BorderBrush" Value="#3A4A8A" />
+        <Setter Property="GridLinesVisibility" Value="Horizontal" />
+        <Setter Property="HorizontalGridLinesBrush" Value="#273878" />
+        <Setter Property="VerticalGridLinesBrush" Value="#273878" />
+        <Setter Property="ColumnHeaderHeight" Value="32" />
+    </Style>
+
+    <Style Selector="DataGridColumnHeader">
+        <Setter Property="Foreground" Value="#EAF1FF" />
+        <Setter Property="Background" Value="#1A295A" />
+        <Setter Property="BorderBrush" Value="#3A4A8A" />
+        <Setter Property="BorderThickness" Value="0,0,0,1" />
+        <Setter Property="Padding" Value="8,6" />
+    </Style>
+
+    <Style Selector="DataGridCell">
+        <Setter Property="Foreground" Value="#EAF1FF" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="6,4" />
+    </Style>
+
+    <Style Selector="DataGridRow">
+        <Setter Property="Background" Value="#111A3F" />
+    </Style>
+
+    <Style Selector="DataGridRow:nth-child(even)">
+        <Setter Property="Background" Value="#141F49" />
+    </Style>
+
+    <!-- TabControl / TabItem styles -->
+    <Style Selector="TabItem">
+        <Setter Property="Foreground" Value="#EAF1FF" />
+        <Setter Property="Padding" Value="14,8" />
+        <Setter Property="Background" Value="#141F49" />
+        <Setter Property="BorderBrush" Value="#3A4A8A" />
+        <Setter Property="BorderThickness" Value="1,1,1,0" />
+        <Setter Property="CornerRadius" Value="6,6,0,0" />
+    </Style>
+
+    <Style Selector="TabItem:selected">
+        <Setter Property="Background" Value="#273878" />
+    </Style>
+
+    <Style Selector="TabControl">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="0" />
+    </Style>
+
+    <!-- ToolTip style -->
+    <Style Selector="ToolTip">
+        <Setter Property="Background" Value="#1C2750" />
+        <Setter Property="Foreground" Value="#EAF1FF" />
+        <Setter Property="BorderBrush" Value="#3A4A8A" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Padding" Value="8,6" />
+    </Style>
+
+    <!-- Debug toolbar button style -->
+    <Style Selector="Button.DebugToolbarButton">
+        <Setter Property="Width" Value="32" />
+        <Setter Property="Height" Value="28" />
+        <Setter Property="MinWidth" Value="32" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Margin" Value="6,0,0,0" />
+    </Style>
+
+    <Style Selector="Button.DebugToolbarButtonFirst">
+        <Setter Property="Width" Value="32" />
+        <Setter Property="Height" Value="28" />
+        <Setter Property="MinWidth" Value="32" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Margin" Value="0,0,0,0" />
+    </Style>
+
+    <!-- GridSplitter style -->
+    <Style Selector="GridSplitter">
+        <Setter Property="Background" Value="#3A4A8A" />
+    </Style>
+</Styles>

@@ -244,7 +244,6 @@ public partial class MainWindow : Window
 
         var key = e.Key == Key.System ? e.SystemKey : e.Key;
         var asmTab = IsAsmSourceTabSelected();
-        var attachDebug = _attachDebugSession != null;
 
         switch (key)
         {
@@ -261,7 +260,7 @@ public partial class MainWindow : Window
             case Key.F10:
                 if (e.IsRepeat || !DebugStepButton.IsEnabled)
                     return false;
-                if (attachDebug || asmTab)
+                if (asmTab)
                     DebugStepInto_Click(this, new RoutedEventArgs());
                 else
                     DebugStep_Click(this, new RoutedEventArgs());
@@ -1657,8 +1656,7 @@ public partial class MainWindow : Window
         foreach (var h in _linkedModuleEditors)
             h.Editor.TextArea.TextView.InvalidateLayer(KnownLayer.Background);
         var asmTab = IsAsmSourceTabSelected();
-        var attachDebug = _attachDebugSession != null;
-        if (attachDebug || asmTab)
+        if (asmTab)
             CurrentStepSession?.RequestStepInstruction();
         else
             CurrentStepSession?.RequestStepInto();

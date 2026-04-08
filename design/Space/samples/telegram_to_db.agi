@@ -10,9 +10,15 @@ Message<> : table {
 	TokenHash: nvarchar(250)?;
 	ChatId: nvarchar(250)?;
 	Username: nvarchar(250)?;
+	MessageId: int? index;
+	MessageTime: datetime?;
 	Message: json?;
+	ReplyMessageId: int? index;
+	ReplyMessage: json?;
 	Photo: json?;
 	Document: json?;
+
+	Reply: Message;
 }
 
 Db> : database {
@@ -34,22 +40,34 @@ procedure Main {
 	for streamwait by delta (stream1, delta, aggregate) {
 		var data := delta.data;
 		// !: accessor to anonymous type
+		var messageId := data!.id;
+		var messageTime := data!.time;
 		var tokenHash := data!.tokenHash;
 		var chatId := data!.chatId;
 		var text := data!.text;
 		var user := data!.username;
 		var photo := data!.photo;
 		var document := data!.document;
+		var reply := data!.reply;
 		var time = :time;
 
 		var message = {
+			MessageId: messageId,
+			MessageTime: messageTime,
 			Time: time,
 			TokenHash: tokenHash,
 			ChatId: chatId,
 			Username: user,
-			Message: text
+			Message: text,
+			ReplyMessageId: reply.id,
+			ReplyMessage: reply.text
 		};
 		print(tokenHash, chatId, text, photo, document, user, time);
+
+		if (reply.id) {
+			var replyOriginal := await db1.Message<>.find(_ => _.MessageId = reply.id);
+			if (replyOriginal) message.ReplyId := replyOriginal.Id;
+		}
 
 		if (photo) {
 			stream2.open({

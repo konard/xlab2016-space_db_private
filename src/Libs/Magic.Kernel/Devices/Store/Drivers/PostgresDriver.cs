@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -371,12 +372,16 @@ namespace Magic.Kernel.Devices.Store.Drivers
                 var createTableSql = BuildCreateTableSql(table);
                 await using var cmd = new NpgsqlCommand(createTableSql, conn);
                 await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
-
-                await SyncTableColumnsAsync(conn, table).ConfigureAwait(false);
             }
+
+            foreach (var table in schema.Tables)
+                await SyncTableColumnsAsync(conn, schema, table).ConfigureAwait(false);
+
+            await SyncIndexesAsync(conn, schema).ConfigureAwait(false);
+            await SyncForeignKeysAsync(conn, schema).ConfigureAwait(false);
         }
 
-        private static async Task SyncTableColumnsAsync(NpgsqlConnection conn, Data.Table table)
+        private static async Task SyncTableColumnsAsync(NpgsqlConnection conn, Data.Database schema, Data.Table table)
         {
             var normalizedTableName = NormalizeTableName(table.Name);
             if (string.IsNullOrWhiteSpace(normalizedTableName))
@@ -385,7 +390,7 @@ namespace Magic.Kernel.Devices.Store.Drivers
             var existingColumns = await LoadTableColumnsAsync(conn, normalizedTableName).ConfigureAwait(false);
             var hasPrimaryKey = await HasPrimaryKeyAsync(conn, normalizedTableName).ConfigureAwait(false);
 
-            foreach (var column in table.Columns)
+            foreach (var column in EnumerateDesiredColumnsForTable(schema, table))
             {
                 if (string.IsNullOrWhiteSpace(column.Name))
                     continue;
@@ -541,6 +546,17 @@ SELECT EXISTS (
             return false;
         }
 
+        private static bool IsIndexed(Data.Column column)
+        {
+            foreach (var modifierObj in column.Modifiers)
+            {
+                var modifier = modifierObj?.ToString()?.Trim() ?? "";
+                if (string.Equals(modifier, "index", StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            return false;
+        }
+
         private static string SanitizeIdentifier(string value)
         {
             var source = value ?? "";
@@ -557,10 +573,20 @@ SELECT EXISTS (
 
         private static string NormalizeTableName(string? value)
         {
+            var name = StripTableContextSuffixes(value);
+            return ToPlural(name);
+        }
+
+        private static string StripTableContextSuffixes(string? value)
+        {
             var name = (value ?? "").Trim();
+            if (name.EndsWith("[]", StringComparison.Ordinal))
+                name = name.Substring(0, name.Length - 2).Trim();
+            if (name.EndsWith("?", StringComparison.Ordinal))
+                name = name.Substring(0, name.Length - 1).Trim();
             if (name.EndsWith("<>", StringComparison.Ordinal))
                 name = name.Substring(0, name.Length - 2).Trim();
-            return ToPlural(name);
+            return name;
         }
 
         /// <summary>Pluralizes table name: Message => Messages, Category => Categories, Box => Boxes.</summary>
@@ -598,6 +624,13 @@ SELECT EXISTS (
             => string.Equals(NormalizeTableName(left), NormalizeTableName(right), StringComparison.OrdinalIgnoreCase);
 
         private sealed record TableColumnInfo(string Name, string Type, bool IsNullable);
+        private sealed record TableRelationSpec(
+            string OwnerTableName,
+            string ReferencedTableName,
+            string FkColumnName,
+            string ReferencedPkName,
+            string FkColumnType,
+            string ConstraintName);
 
         private static async Task InsertRowAsync(NpgsqlConnection conn, NpgsqlTransaction tx, Data.Table table, Dictionary<string, object?> row)
         {
@@ -605,7 +638,9 @@ SELECT EXISTS (
             if (string.IsNullOrWhiteSpace(normalizedTableName))
                 return;
 
-            var allowedColumns = table.Columns;
+            var allowedColumns = table.Database != null
+                ? EnumerateDesiredColumnsForTable(table.Database, table).ToList()
+                : table.Columns;
             var selectedColumns = new List<Data.Column>();
             var values = new List<object?>();
 
@@ -670,7 +705,10 @@ SELECT EXISTS (
 
             var selectedColumns = new List<Data.Column>();
             var values = new List<object?>();
-            foreach (var column in table.Columns)
+            var upsertColumns = table.Database != null
+                ? EnumerateDesiredColumnsForTable(table.Database, table)
+                : table.Columns;
+            foreach (var column in upsertColumns)
             {
                 if (string.IsNullOrWhiteSpace(column.Name) ||
                     string.Equals(column.Name, keyColumn, StringComparison.OrdinalIgnoreCase))
@@ -717,6 +755,183 @@ SELECT EXISTS (
                 defs.Add(BuildColumnSql(column));
             var body = defs.Count == 0 ? "" : string.Join(", ", defs);
             return $"CREATE TABLE IF NOT EXISTS {QuoteIdent(normalizedTableName)} ({body});";
+        }
+
+        private static IEnumerable<Data.Column> EnumerateDesiredColumnsForTable(Data.Database schema, Data.Table targetTable)
+        {
+            var produced = new Dictionary<string, Data.Column>(StringComparer.OrdinalIgnoreCase);
+            foreach (var c in targetTable.Columns)
+            {
+                if (string.IsNullOrWhiteSpace(c.Name))
+                    continue;
+                produced[c.Name] = c;
+            }
+
+            var targetName = NormalizeTableName(targetTable.Name);
+            foreach (var rel in BuildRelationSpecs(schema))
+            {
+                if (!string.Equals(rel.OwnerTableName, targetName, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (produced.ContainsKey(rel.FkColumnName))
+                    continue;
+
+                produced[rel.FkColumnName] = new Data.Column
+                {
+                    Name = rel.FkColumnName,
+                    Type = rel.FkColumnType,
+                    Modifiers = new List<object?> { "nullable:1" }
+                };
+            }
+
+            return produced.Values;
+        }
+
+        private static async Task SyncForeignKeysAsync(NpgsqlConnection conn, Data.Database schema)
+        {
+            foreach (var rel in BuildRelationSpecs(schema))
+            {
+                if (string.IsNullOrWhiteSpace(rel.OwnerTableName) ||
+                    string.IsNullOrWhiteSpace(rel.ReferencedTableName) ||
+                    string.IsNullOrWhiteSpace(rel.FkColumnName) ||
+                    string.IsNullOrWhiteSpace(rel.ReferencedPkName))
+                {
+                    continue;
+                }
+
+                var fkSql = $@"
+ALTER TABLE {QuoteIdent(rel.OwnerTableName)}
+ADD CONSTRAINT {QuoteIdent(rel.ConstraintName)}
+FOREIGN KEY ({QuoteIdent(rel.FkColumnName)})
+REFERENCES {QuoteIdent(rel.ReferencedTableName)} ({QuoteIdent(rel.ReferencedPkName)});";
+                try
+                {
+                    await using var fkCmd = new NpgsqlCommand(fkSql, conn);
+                    await fkCmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+                }
+                catch (PostgresException ex) when (string.Equals(ex.SqlState, "42710", StringComparison.Ordinal))
+                {
+                    // constraint already exists
+                }
+            }
+        }
+
+        private static async Task SyncIndexesAsync(NpgsqlConnection conn, Data.Database schema)
+        {
+            foreach (var table in schema.Tables)
+            {
+                var tableName = NormalizeTableName(table.Name);
+                if (string.IsNullOrWhiteSpace(tableName))
+                    continue;
+
+                foreach (var column in EnumerateDesiredColumnsForTable(schema, table))
+                {
+                    if (string.IsNullOrWhiteSpace(column.Name) || !IsIndexed(column))
+                        continue;
+
+                    var indexName = $"ix_{SanitizeIdentifier(tableName)}_{SanitizeIdentifier(column.Name)}";
+                    var indexSql =
+                        $"CREATE INDEX IF NOT EXISTS {QuoteIdent(indexName)} ON {QuoteIdent(tableName)} ({QuoteIdent(column.Name)});";
+                    await using var indexCmd = new NpgsqlCommand(indexSql, conn);
+                    await indexCmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+                }
+            }
+        }
+
+        private static List<TableRelationSpec> BuildRelationSpecs(Data.Database schema)
+        {
+            var specs = new List<TableRelationSpec>();
+            foreach (var firstTable in schema.Tables)
+            {
+                var firstName = NormalizeTableName(firstTable.Name);
+                if (string.IsNullOrWhiteSpace(firstName))
+                    continue;
+
+                var firstPk = ResolvePrimaryKeyColumn(firstTable);
+                if (firstPk == null)
+                    continue;
+
+                foreach (var relation in firstTable.Relations)
+                {
+                    var refTable = ResolveTableByType(schema, relation.ReferencedTableType);
+                    if (refTable == null)
+                        continue;
+
+                    var secondName = NormalizeTableName(refTable.Name);
+                    var secondPk = ResolvePrimaryKeyColumn(refTable);
+                    if (string.IsNullOrWhiteSpace(secondName) || secondPk == null)
+                        continue;
+
+                    var fkColumnName = relation.Name + "Id";
+                    if (relation.IsArray)
+                    {
+                        var fkType = ResolveColumnSqlType(firstPk.Type, firstPk.Modifiers);
+                        specs.Add(new TableRelationSpec(
+                            OwnerTableName: secondName,
+                            ReferencedTableName: firstName,
+                            FkColumnName: fkColumnName,
+                            ReferencedPkName: firstPk.Name,
+                            FkColumnType: fkType,
+                            ConstraintName: $"{secondName}_{fkColumnName}_{firstName}_{firstPk.Name}"));
+                    }
+                    else
+                    {
+                        var fkType = ResolveColumnSqlType(secondPk.Type, secondPk.Modifiers);
+                        specs.Add(new TableRelationSpec(
+                            OwnerTableName: firstName,
+                            ReferencedTableName: secondName,
+                            FkColumnName: fkColumnName,
+                            ReferencedPkName: secondPk.Name,
+                            FkColumnType: fkType,
+                            ConstraintName: $"{firstName}_{fkColumnName}_{secondName}_{secondPk.Name}"));
+                    }
+                }
+            }
+
+            return specs
+                .GroupBy(s => $"{s.OwnerTableName}|{s.FkColumnName}|{s.ReferencedTableName}|{s.ReferencedPkName}", StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.First())
+                .ToList();
+        }
+
+        private static Data.Table? ResolveTableByType(Data.Database schema, string referencedTableType)
+        {
+            if (string.IsNullOrWhiteSpace(referencedTableType))
+                return null;
+
+            // Priority for table context symbols:
+            // 1) explicit table context (Message<>)
+            // 2) raw symbol (Message)
+            // 3) legacy db-style symbol (Message>)
+            var source = StripTableContextSuffixes(referencedTableType);
+            var candidates = new[]
+            {
+                source + "<>",
+                source,
+                source + ">"
+            };
+
+            foreach (var candidate in candidates)
+            {
+                var normalized = NormalizeTableName(candidate);
+                foreach (var t in schema.Tables)
+                {
+                    if (IsSameTableName(t.Name, candidate) ||
+                        string.Equals(NormalizeTableName(t.Name), normalized, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return t;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        private static Data.Column? ResolvePrimaryKeyColumn(Data.Table table)
+        {
+            var pk = table.Columns.FirstOrDefault(IsPrimaryKey);
+            if (pk != null)
+                return pk;
+            return table.Columns.FirstOrDefault(c => string.Equals(c.Name, "Id", StringComparison.OrdinalIgnoreCase));
         }
 
         private static string BuildColumnSql(Data.Column column)
@@ -828,6 +1043,57 @@ SELECT EXISTS (
                 return null;
 
             var normalizedType = (columnType ?? "").Trim().ToLowerInvariant();
+            switch (normalizedType)
+            {
+                case "datetime":
+                case "timestamp":
+                    if (TryNormalizeToDateTime(value, out var timestampValue))
+                        return timestampValue;
+                    break;
+                case "date":
+                    if (TryNormalizeToDateTime(value, out var dateValue))
+                        return dateValue.Date;
+                    break;
+                case "time":
+                    if (TryNormalizeToTimeSpan(value, out var timeValue))
+                        return timeValue;
+                    break;
+                case "bool":
+                case "boolean":
+                    if (TryNormalizeToBoolean(value, out var boolValue))
+                        return boolValue;
+                    break;
+                case "bigint":
+                    if (TryNormalizeToInt64(value, out var int64Value))
+                        return int64Value;
+                    break;
+                case "int":
+                case "integer":
+                    if (TryNormalizeToInt32(value, out var int32Value))
+                        return int32Value;
+                    break;
+                case "smallint":
+                    if (TryNormalizeToInt16(value, out var int16Value))
+                        return int16Value;
+                    break;
+                case "decimal":
+                    if (TryNormalizeToDecimal(value, out var decimalValue))
+                        return decimalValue;
+                    break;
+                case "double":
+                    if (TryNormalizeToDouble(value, out var doubleValue))
+                        return doubleValue;
+                    break;
+                case "float":
+                    if (TryNormalizeToSingle(value, out var floatValue))
+                        return floatValue;
+                    break;
+                case "uuid":
+                    if (TryNormalizeToGuid(value, out var guidValue))
+                        return guidValue;
+                    break;
+            }
+
             if (normalizedType is "json" or "jsonb")
             {
                 if (value is string s && IsValidJsonObjectOrArray(s))
@@ -844,6 +1110,225 @@ SELECT EXISTS (
             }
 
             return value;
+        }
+
+        private static bool TryNormalizeToDateTime(object? value, out DateTime result)
+        {
+            result = default;
+            if (value == null || value == DBNull.Value)
+                return false;
+
+            switch (value)
+            {
+                case DateTime dt:
+                    result = dt;
+                    return true;
+                case DateTimeOffset dto:
+                    result = dto.UtcDateTime;
+                    return true;
+                case long unixSeconds:
+                    result = DateTimeOffset.FromUnixTimeSeconds(unixSeconds).UtcDateTime;
+                    return true;
+                case int unixSecondsInt:
+                    result = DateTimeOffset.FromUnixTimeSeconds(unixSecondsInt).UtcDateTime;
+                    return true;
+                case string s when DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind | DateTimeStyles.AllowWhiteSpaces, out var parsedInvariant):
+                    result = parsedInvariant;
+                    return true;
+                case string s when DateTime.TryParse(s, CultureInfo.CurrentCulture, DateTimeStyles.AllowWhiteSpaces, out var parsedCurrent):
+                    result = parsedCurrent;
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private static bool TryNormalizeToTimeSpan(object? value, out TimeSpan result)
+        {
+            result = default;
+            if (value == null || value == DBNull.Value)
+                return false;
+            switch (value)
+            {
+                case TimeSpan ts:
+                    result = ts;
+                    return true;
+                case DateTime dt:
+                    result = dt.TimeOfDay;
+                    return true;
+                case string s when TimeSpan.TryParse(s, CultureInfo.InvariantCulture, out var parsedInvariant):
+                    result = parsedInvariant;
+                    return true;
+                case string s when TimeSpan.TryParse(s, CultureInfo.CurrentCulture, out var parsedCurrent):
+                    result = parsedCurrent;
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private static bool TryNormalizeToBoolean(object? value, out bool result)
+        {
+            result = false;
+            if (value == null || value == DBNull.Value)
+                return false;
+            switch (value)
+            {
+                case bool b:
+                    result = b;
+                    return true;
+                case string s when bool.TryParse(s, out var parsed):
+                    result = parsed;
+                    return true;
+                case long l:
+                    result = l != 0;
+                    return true;
+                case int i:
+                    result = i != 0;
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private static bool TryNormalizeToInt64(object? value, out long result)
+        {
+            result = 0;
+            if (value == null || value == DBNull.Value)
+                return false;
+            return value switch
+            {
+                long l => (result = l) == l,
+                int i => (result = i) == i,
+                short s => (result = s) == s,
+                byte b => (result = b) == b,
+                string text when long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) => (result = parsed) == parsed,
+                _ => false
+            };
+        }
+
+        private static bool TryNormalizeToInt32(object? value, out int result)
+        {
+            result = 0;
+            if (value == null || value == DBNull.Value)
+                return false;
+            return value switch
+            {
+                int i => (result = i) == i,
+                short s => (result = s) == s,
+                byte b => (result = b) == b,
+                long l when l <= int.MaxValue && l >= int.MinValue => (result = (int)l) == (int)l,
+                string text when int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) => (result = parsed) == parsed,
+                _ => false
+            };
+        }
+
+        private static bool TryNormalizeToInt16(object? value, out short result)
+        {
+            result = 0;
+            if (value == null || value == DBNull.Value)
+                return false;
+            return value switch
+            {
+                short s => (result = s) == s,
+                byte b => (result = (short)b) == (short)b,
+                int i when i <= short.MaxValue && i >= short.MinValue => (result = (short)i) == (short)i,
+                long l when l <= short.MaxValue && l >= short.MinValue => (result = (short)l) == (short)l,
+                string text when short.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) => (result = parsed) == parsed,
+                _ => false
+            };
+        }
+
+        private static bool TryNormalizeToDecimal(object? value, out decimal result)
+        {
+            result = 0m;
+            if (value == null || value == DBNull.Value)
+                return false;
+            return value switch
+            {
+                decimal d => (result = d) == d,
+                double d => decimal.TryParse(d.ToString(CultureInfo.InvariantCulture), NumberStyles.Float, CultureInfo.InvariantCulture, out result),
+                float f => decimal.TryParse(f.ToString(CultureInfo.InvariantCulture), NumberStyles.Float, CultureInfo.InvariantCulture, out result),
+                long l => (result = l) == l,
+                int i => (result = i) == i,
+                string text when decimal.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed) => (result = parsed) == parsed,
+                _ => false
+            };
+        }
+
+        private static bool TryNormalizeToDouble(object? value, out double result)
+        {
+            result = 0d;
+            if (value == null || value == DBNull.Value)
+                return false;
+            return value switch
+            {
+                double d => (result = d) == d,
+                float f => (result = f) == f,
+                decimal d => (result = (double)d) == (double)d,
+                long l => (result = l) == l,
+                int i => (result = i) == i,
+                string text when double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed) => (result = parsed) == parsed,
+                _ => false
+            };
+        }
+
+        private static bool TryNormalizeToSingle(object? value, out float result)
+        {
+            result = 0f;
+            if (value == null || value == DBNull.Value)
+                return false;
+            switch (value)
+            {
+                case float f:
+                    result = f;
+                    return true;
+                case double d when d <= float.MaxValue && d >= float.MinValue:
+                    result = (float)d;
+                    return true;
+                case decimal dec:
+                    try
+                    {
+                        var cast = (float)dec;
+                        if (float.IsNaN(cast) || float.IsInfinity(cast))
+                            return false;
+                        result = cast;
+                        return true;
+                    }
+                    catch (OverflowException)
+                    {
+                        return false;
+                    }
+                case long l when l <= int.MaxValue && l >= int.MinValue:
+                    result = l;
+                    return true;
+                case int i:
+                    result = i;
+                    return true;
+                case string text when float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed):
+                    result = parsed;
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private static bool TryNormalizeToGuid(object? value, out Guid result)
+        {
+            result = Guid.Empty;
+            if (value == null || value == DBNull.Value)
+                return false;
+            switch (value)
+            {
+                case Guid g:
+                    result = g;
+                    return true;
+                case string s when Guid.TryParse(s, out var parsed):
+                    result = parsed;
+                    return true;
+                default:
+                    return false;
+            }
         }
 
         private static bool IsUpsertRow(Dictionary<string, object?> row)

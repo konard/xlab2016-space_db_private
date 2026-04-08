@@ -560,6 +560,121 @@ entrypoint {
             asm.Should().Contain(c => c.Opcode == Opcodes.CallObj && (c.Operand1 as string) == "add");
             asm.Should().Contain(c => c.Opcode == Opcodes.AwaitObj);
             asm.Should().Contain(c => c.Opcode == Opcodes.StreamWait);
+
+            var awaitObjIndex = asm.FindIndex(c => c.Opcode == Opcodes.AwaitObj);
+            awaitObjIndex.Should().BeGreaterThan(0);
+            asm[awaitObjIndex - 1].Opcode.Should().Be(Opcodes.Push);
+            var awaitedMemory = asm[awaitObjIndex - 1].Operand1.Should().BeOfType<MemoryAddress>().Subject;
+            awaitedMemory.Index.Should().HaveValue();
+            var db1Slot = awaitedMemory.Index!.Value;
+
+            var loopCallIndex = asm.FindIndex(c =>
+                c.Opcode == Opcodes.ACall &&
+                c.Operand1 is CallInfo ci &&
+                ci.FunctionName.StartsWith("streamwait_loop_", StringComparison.Ordinal));
+            loopCallIndex.Should().BeGreaterThan(1);
+
+            // Сразу перед arity должен идти push захваченного db1 (внешний слот родителя).
+            asm[loopCallIndex - 1].Opcode.Should().Be(Opcodes.Push);
+            var arityPush = asm[loopCallIndex - 1].Operand1.Should().BeOfType<PushOperand>().Subject;
+            arityPush.Kind.Should().Be("IntLiteral");
+            arityPush.Value.Should().BeOfType<long>().Which.Should().BeGreaterThan(2L);
+
+            asm[loopCallIndex - 2].Opcode.Should().Be(Opcodes.Push);
+            var capturedDbPush = asm[loopCallIndex - 2].Operand1.Should().BeOfType<MemoryAddress>().Subject;
+            capturedDbPush.Index.Should().Be(db1Slot);
+
+            var loopCi = (CallInfo)asm[loopCallIndex].Operand1!;
+            loopCi.StreamWaitCaptureToSlots.Should().NotBeNull();
+            loopCi.StreamWaitCaptureToSlots!.Should().Contain(db1Slot);
+        }
+
+        [Fact]
+        public void ParseProgram_WithTelegramLikeStreamwaitBody_ShouldCaptureAwaitedDatabaseSlot()
+        {
+            var source = @"@AGI 0.0.1;
+
+program telegram_to_db;
+module telegram;
+
+procedure Main {
+    var stream1 := stream<messenger, telegram>;
+    var stream2 := stream<network, file, telegram>;
+    var vault1 := vault;
+    var token := vault1.read(""token"");
+    var db1 := database<postgres, Db>>;
+    for streamwait by delta (stream1, delta, aggregate) {
+        var data := delta.data;
+        var tokenHash := data!.tokenHash;
+        var chatId := data!.chatId;
+        var text := data!.text;
+        var user := data!.username;
+        var photo := data!.photo;
+        var document := data!.document;
+        var time = :time;
+
+        var message = {
+            Time: time,
+            TokenHash: tokenHash,
+            ChatId: chatId,
+            Username: user,
+            Message: text
+        };
+
+        if (photo) {
+            stream2.open({
+                token: token,
+                file: photo
+            });
+            var photoData := streamwait stream2;
+            message.Photo = {
+                data: photoData
+            }
+        }
+
+        if (document) {
+            stream2.open({
+                token: token,
+                file: document
+            });
+            var documentData := streamwait stream2;
+            message.Document = {
+                data: documentData
+            }
+        }
+
+        db1.Message<> += message;
+        await db1;
+        streamwait print(message);
+    }
+}
+
+entrypoint {
+    Main;
+}";
+
+            var parser = new Parser();
+            var semanticAnalyzer = new SemanticAnalyzer();
+            var structure = parser.ParseProgram(source);
+            var analyzed = semanticAnalyzer.AnalyzeProgram(structure, parser, source);
+            var asm = analyzed.Procedures["Main"].Body;
+
+            var awaitObjIndex = asm.FindIndex(c => c.Opcode == Opcodes.AwaitObj);
+            awaitObjIndex.Should().BeGreaterThan(0);
+            asm[awaitObjIndex - 1].Opcode.Should().Be(Opcodes.Push);
+            var awaitedMemory = asm[awaitObjIndex - 1].Operand1.Should().BeOfType<MemoryAddress>().Subject;
+            awaitedMemory.Index.Should().HaveValue();
+            var db1Slot = awaitedMemory.Index!.Value;
+
+            var loopCallIndex = asm.FindIndex(c =>
+                c.Opcode == Opcodes.ACall &&
+                c.Operand1 is CallInfo ci &&
+                ci.FunctionName.StartsWith("streamwait_loop_", StringComparison.Ordinal));
+            loopCallIndex.Should().BeGreaterThan(1);
+
+            var loopCi = (CallInfo)asm[loopCallIndex].Operand1!;
+            loopCi.StreamWaitCaptureToSlots.Should().NotBeNull();
+            loopCi.StreamWaitCaptureToSlots!.Should().Contain(db1Slot);
         }
 
         [Fact]

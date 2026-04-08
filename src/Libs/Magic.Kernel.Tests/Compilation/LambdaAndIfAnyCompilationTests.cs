@@ -506,6 +506,62 @@ entrypoint { asm { call Main; } }
         }
 
         [Fact]
+        public async Task CompileAsync_VarAssignment_WithAwaitedFind_AndMemberAccessRhs_PreservesMemberAccessInLambda()
+        {
+            var source = @"@AGI 0.0.1
+program FindOneMemberRhs
+module M/E
+Db> : database { }
+procedure Main {
+	var db1 := database<postgres, Db>>;
+	var reply := {};
+	reply.id = 42;
+	var original := await db1.Message<>.find(_ => _.Time = reply.id);
+}
+entrypoint { asm { call Main; } }
+";
+            var result = await _compiler.CompileAsync(source);
+            result.Success.Should().BeTrue(result.ErrorMessage ?? "");
+
+            var body = result.Result!.Procedures["Main"].Body!;
+            var findIdx = body.FindIndex(c => c.Opcode == Opcodes.CallObj && (c.Operand1 as string) == "find");
+            findIdx.Should().BeGreaterThan(-1);
+
+            var exprIdx = body.FindIndex(c => c.Opcode == Opcodes.Expr);
+            exprIdx.Should().BeGreaterThan(-1);
+
+            // Lambda body should contain 2 getobj calls:
+            // 1) _.Time (left)
+            // 2) reply.id (right)
+            var defexprIdx = body.FindIndex(exprIdx + 1, c => c.Opcode == Opcodes.DefExpr);
+            defexprIdx.Should().BeGreaterThan(exprIdx);
+            var lambdaBody = body.Skip(exprIdx).Take(defexprIdx - exprIdx + 1).ToList();
+            lambdaBody.Count(c => c.Opcode == Opcodes.GetObj).Should().Be(1);
+
+            // RHS member access (reply.id) must be materialized before expr starts.
+            var preExpr = body.Take(exprIdx).ToList();
+            var hasIdLiteralPush = false;
+            var hasGetObjBeforeExpr = false;
+            foreach (var cmd in preExpr)
+            {
+                if (cmd.Opcode == Opcodes.GetObj)
+                    hasGetObjBeforeExpr = true;
+
+                if (cmd.Opcode != Opcodes.Push || cmd.Operand1 is not PushOperand po)
+                    continue;
+
+                if (string.Equals(po.Kind, "StringLiteral", StringComparison.Ordinal) &&
+                    string.Equals(po.Value as string, "id", StringComparison.Ordinal))
+                {
+                    hasIdLiteralPush = true;
+                }
+            }
+
+            hasIdLiteralPush.Should().BeTrue();
+            hasGetObjBeforeExpr.Should().BeTrue();
+        }
+
+        [Fact]
         public async Task CompileAsync_ExpressionToSlot_SingleVariable_PushesAndPops()
         {
             var source = @"@AGI 0.0.1

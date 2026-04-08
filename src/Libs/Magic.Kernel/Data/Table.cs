@@ -17,6 +17,7 @@ namespace Magic.Kernel.Data
 
         public Database? Database { get; set; }
         public List<Column> Columns { get; set; } = new List<Column>();
+        public List<TableRelation> Relations { get; set; } = new List<TableRelation>();
         public List<Dictionary<string, object?>> PendingRows { get; set; } = new List<Dictionary<string, object?>>();
         public ExprTree? FilterExpr { get; set; }
 
@@ -315,6 +316,7 @@ namespace Magic.Kernel.Data
                 Generalizations = new List<IDefType>(Generalizations),
                 Database = Database,
                 Columns = Columns.ToList(),
+                Relations = Relations.ToList(),
                 PendingRows = filteredRows ?? PendingRows,
                 FilterExpr = filterExpr
             };

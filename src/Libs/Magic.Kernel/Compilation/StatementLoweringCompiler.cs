@@ -1507,37 +1507,78 @@ namespace Magic.Kernel.Compilation
             // e.g. "if !auth.isAuthenticated return;"
             if (braceStart < 0)
             {
-                // Find the boundary between condition and single-line body.
-                // The condition ends at a whitespace-separated token boundary (last identifier/member-access group).
-                // Strategy: scan tokens and treat the last complete token group as the body.
                 var rest = t.Substring(condStart).Trim();
                 if (string.IsNullOrEmpty(rest)) return false;
 
-                // We need to split "condition body" where condition is identifier or member access
-                // and body is the remaining statement. Find the last "word boundary" before the body keyword.
-                var lastSpaceIdx = -1;
-                var scanDepth = 0;
-                var scanInStr = false;
-                var scanQuote = '\0';
-                for (var si = 0; si < rest.Length; si++)
+                // Preferred split: explicit parenthesized condition.
+                // Example: if (replyOriginal) message.ReplyId := replyOriginal.Id;
+                if (rest[0] == '(')
                 {
-                    var ch = rest[si];
-                    if (scanInStr)
+                    var depth = 0;
+                    var inStr = false;
+                    var strQuote = '\0';
+                    var closeIdx = -1;
+                    for (var k = 0; k < rest.Length; k++)
                     {
-                        if (ch == '\\' && si + 1 < rest.Length) { si++; continue; }
-                        if (ch == scanQuote) { scanInStr = false; }
-                        continue;
+                        var ch = rest[k];
+                        if (inStr)
+                        {
+                            if (ch == '\\' && k + 1 < rest.Length) { k++; continue; }
+                            if (ch == strQuote) inStr = false;
+                            continue;
+                        }
+
+                        if (ch == '"' || ch == '\'') { inStr = true; strQuote = ch; continue; }
+                        if (ch == '(') { depth++; continue; }
+                        if (ch == ')')
+                        {
+                            depth--;
+                            if (depth == 0)
+                            {
+                                closeIdx = k;
+                                break;
+                            }
+                        }
                     }
-                    if (ch == '"' || ch == '\'') { scanInStr = true; scanQuote = ch; continue; }
-                    if (ch == '(') { scanDepth++; continue; }
-                    if (ch == ')') { scanDepth--; continue; }
-                    if (scanDepth == 0 && char.IsWhiteSpace(ch))
-                        lastSpaceIdx = si;
+
+                    if (closeIdx <= 0)
+                        return false;
+
+                    condText = rest.Substring(0, closeIdx + 1).Trim();
+                    bodyText = rest.Substring(closeIdx + 1).Trim();
+                }
+                else
+                {
+                    // Fallback for non-parenthesized form: "if cond statement;"
+                    var splitIdx = -1;
+                    var scanDepth = 0;
+                    var scanInStr = false;
+                    var scanQuote = '\0';
+                    for (var si = 0; si < rest.Length; si++)
+                    {
+                        var ch = rest[si];
+                        if (scanInStr)
+                        {
+                            if (ch == '\\' && si + 1 < rest.Length) { si++; continue; }
+                            if (ch == scanQuote) scanInStr = false;
+                            continue;
+                        }
+
+                        if (ch == '"' || ch == '\'') { scanInStr = true; scanQuote = ch; continue; }
+                        if (ch == '(') { scanDepth++; continue; }
+                        if (ch == ')') { scanDepth--; continue; }
+                        if (scanDepth == 0 && char.IsWhiteSpace(ch))
+                        {
+                            splitIdx = si;
+                            break;
+                        }
+                    }
+
+                    if (splitIdx < 0) return false;
+                    condText = rest.Substring(0, splitIdx).Trim();
+                    bodyText = rest.Substring(splitIdx).Trim();
                 }
 
-                if (lastSpaceIdx < 0) return false;
-                condText = rest.Substring(0, lastSpaceIdx).Trim();
-                bodyText = rest.Substring(lastSpaceIdx).Trim();
                 if (string.IsNullOrEmpty(condText) || string.IsNullOrEmpty(bodyText)) return false;
                 elseText = "";
                 elseIsBlock = false;
@@ -2639,8 +2680,11 @@ namespace Magic.Kernel.Compilation
             return parameters.Count > 0;
         }
 
-        /// <summary>Emits lambda body for pattern param.Member = varName: expr, duplicate lambda arg0, getobj Member, pop temp, push temp, push varSlot, equals, lambda, defexpr.</summary>
-        private static bool TryEmitLambdaBodyEqualsMember(
+        /// <summary>
+        /// Emits lambda body for pattern <c>param.Member = rhsExpr</c>.
+        /// Rhs is compiled as a full expression (variable/member/literal/etc), so constructs like <c>reply.id</c> are preserved.
+        /// </summary>
+        private bool TryEmitLambdaBodyEqualsMember(
             List<string> lambdaParameters,
             string body,
             Dictionary<string, (string Kind, int Index)> vars,
@@ -2653,16 +2697,20 @@ namespace Magic.Kernel.Compilation
             var parameterName = Regex.Escape(lambdaParameters[0]);
             var m = Regex.Match(
                 body.Trim(),
-                $@"{parameterName}\s*\.\s*(\w+)\s*=\s*(\w+)",
+                $@"^\s*{parameterName}\s*\.\s*(\w+)\s*=\s*(.+?)\s*$",
                 RegexOptions.IgnoreCase);
             if (!m.Success) return false;
             var memberName = m.Groups[1].Value;
-            var rightVarName = m.Groups[2].Value;
-            if (!vars.TryGetValue(rightVarName, out var rightVar))
+            var rightExpression = m.Groups[2].Value.Trim();
+            if (string.IsNullOrWhiteSpace(rightExpression))
                 return false;
-            // В статическом контексте нет доступа к AllocateAnonymousLocalTemp (она требует экземпляр),
-            // поэтому здесь используем простой глобальный temp-слот.
+
             var tempSlot = memorySlotCounter++;
+            var rightSlot = memorySlotCounter++;
+
+            // Compute non-lambda RHS before expr/defexpr so ExprTree stays pure.
+            if (!TryCompileExpressionToSlot(rightExpression, vars, rightSlot, ref memorySlotCounter, instructions))
+                return false;
 
             instructions.Add(new InstructionNode { Opcode = "expr" });
             instructions.Add(CreatePushLambdaArgInstruction(0));
@@ -2671,10 +2719,8 @@ namespace Magic.Kernel.Compilation
             instructions.Add(new InstructionNode { Opcode = "getobj" });
             instructions.Add(CreatePopMemoryInstruction(tempSlot));
             instructions.Add(CreatePushMemoryInstruction(tempSlot));
-            if (rightVar.Kind == "global")
-                instructions.Add(CreatePushGlobalMemoryInstruction(rightVar.Index));
-            else
-                instructions.Add(CreatePushMemoryInstruction(rightVar.Index));
+            instructions.Add(CreatePushMemoryInstruction(rightSlot));
+
             instructions.Add(new InstructionNode { Opcode = "equals" });
             instructions.Add(new InstructionNode { Opcode = "lambda" });
             instructions.Add(new InstructionNode { Opcode = "defexpr" });

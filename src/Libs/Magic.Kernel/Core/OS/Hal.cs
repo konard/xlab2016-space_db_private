@@ -264,6 +264,26 @@ namespace Magic.Kernel.Core.OS
                 return parentTable;
             }
 
+            // Table relation def:
+            // args = [parentTable, relationName, referencedTableType, "single|array", "relation"].
+            if (args.Count == 5 &&
+                args[4] is string relKind &&
+                string.Equals(relKind, "relation", StringComparison.OrdinalIgnoreCase) &&
+                args[0] is Table relationParentTable &&
+                args[1] is string relationName &&
+                args[2] is string referencedTableType &&
+                args[3] is string relationCardinality)
+            {
+                var isArray = string.Equals(relationCardinality.Trim(), "array", StringComparison.OrdinalIgnoreCase);
+                relationParentTable.Relations.Add(new TableRelation
+                {
+                    Name = relationName,
+                    ReferencedTableType = referencedTableType,
+                    IsArray = isArray
+                });
+                return relationParentTable;
+            }
+
             // Database add table: args = [db, tableRef, "table"].
             if (args.Count == 3 &&
                 args[args.Count - 1] is string tableDefKind &&

@@ -133,6 +133,44 @@ entrypoint {
                 .Should()
                 .BeTrue("the else branch formats the interpolated error string");
         }
+
+        [Fact]
+        public async Task CompileAsync_WithObjectLiteralMemberAccessValues_ShouldSucceed()
+        {
+            var source = @"@AGI 0.0.1;
+
+program Test;
+module Test/Reply;
+
+procedure Main {
+    var reply := { id: 10, text: ""ok"" };
+    var messageId := 1;
+    var messageTime := :time;
+    var time := :time;
+    var tokenHash := ""th"";
+    var chatId := ""ch"";
+    var user := ""u"";
+    var text := ""msg"";
+    var message = {
+        MessageId: messageId,
+        MessageTime: messageTime,
+        Time: time,
+        TokenHash: tokenHash,
+        ChatId: chatId,
+        Username: user,
+        Message: text,
+        ReplyMessageId: reply.id,
+        ReplyMessage: reply.text
+    };
+}
+
+entrypoint {
+    Main;
+}";
+
+            var result = await _compiler.CompileAsync(source);
+            result.Success.Should().BeTrue(result.ErrorMessage);
+        }
     }
 }
 

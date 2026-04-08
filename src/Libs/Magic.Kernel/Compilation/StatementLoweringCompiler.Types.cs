@@ -34,16 +34,25 @@ namespace Magic.Kernel.Compilation
 
                 foreach (var columnRaw in SplitTopLevelBySemicolon(body))
                 {
-                    if (!TryParseColumnSpec(columnRaw, out var columnName, out var columnType, out var modifiers))
+                    if (!TryParseColumnSpec(columnRaw, out var columnName, out var columnType, out var modifiers, out var isRelation, out var isArrayRelation))
                         continue;
 
                     instructions.Add(CreatePushMemoryInstruction(tableSlot));
                     instructions.Add(CreatePushStringInstruction(columnName));
                     instructions.Add(CreatePushStringInstruction(columnType));
-                    foreach (var modifier in modifiers)
-                        instructions.Add(CreatePushStringInstruction(modifier));
-                    instructions.Add(CreatePushStringInstruction("column"));
-                    instructions.Add(CreatePushIntInstruction(4 + modifiers.Count));
+                    if (isRelation)
+                    {
+                        instructions.Add(CreatePushStringInstruction(isArrayRelation ? "array" : "single"));
+                        instructions.Add(CreatePushStringInstruction("relation"));
+                        instructions.Add(CreatePushIntInstruction(5));
+                    }
+                    else
+                    {
+                        foreach (var modifier in modifiers)
+                            instructions.Add(CreatePushStringInstruction(modifier));
+                        instructions.Add(CreatePushStringInstruction("column"));
+                        instructions.Add(CreatePushIntInstruction(4 + modifiers.Count));
+                    }
                     instructions.Add(new InstructionNode { Opcode = "def" });
                     instructions.Add(CreatePopMemoryInstruction(tableSlot));
                 }
@@ -746,11 +755,19 @@ namespace Magic.Kernel.Compilation
             return result;
         }
 
-        private static bool TryParseColumnSpec(string columnRaw, out string columnName, out string columnType, out List<string> modifiers)
+        private static bool TryParseColumnSpec(
+            string columnRaw,
+            out string columnName,
+            out string columnType,
+            out List<string> modifiers,
+            out bool isRelation,
+            out bool isArrayRelation)
         {
             columnName = "";
             columnType = "";
             modifiers = new List<string>();
+            isRelation = false;
+            isArrayRelation = false;
 
             var idx = columnRaw.IndexOf(':');
             if (idx <= 0)
@@ -760,6 +777,14 @@ namespace Magic.Kernel.Compilation
             var spec = columnRaw.Substring(idx + 1).Trim();
             if (string.IsNullOrWhiteSpace(columnName) || string.IsNullOrWhiteSpace(spec))
                 return false;
+
+            if (TryParseRelationSpec(spec, out var relationType, out var relationIsArray))
+            {
+                columnType = relationType;
+                isRelation = true;
+                isArrayRelation = relationIsArray;
+                return true;
+            }
 
             var nullable = spec.EndsWith("?", StringComparison.Ordinal);
             if (nullable)
@@ -781,6 +806,16 @@ namespace Magic.Kernel.Compilation
                 spec = string.Join(" ", parts.Skip(1)).Trim();
             }
 
+            // Support nullable marker directly on type token, e.g. "int? index".
+            if (columnType.EndsWith("?", StringComparison.Ordinal))
+            {
+                nullable = true;
+                columnType = columnType.Substring(0, columnType.Length - 1).Trim();
+            }
+
+            if (string.IsNullOrWhiteSpace(columnType))
+                return false;
+
             if (Regex.IsMatch(spec, @"\bprimary\s+key\b", RegexOptions.IgnoreCase))
             {
                 modifiers.Add("primary key");
@@ -797,6 +832,49 @@ namespace Magic.Kernel.Compilation
             modifiers.Add(nullable ? "nullable:1" : "nullable:0");
             return true;
         }
+
+        private static bool TryParseRelationSpec(string spec, out string referencedTableType, out bool isArray)
+        {
+            referencedTableType = "";
+            isArray = false;
+
+            var s = (spec ?? "").Trim();
+            if (s.Length == 0)
+                return false;
+
+            var nullableSuffix = false;
+            if (s.EndsWith("?", StringComparison.Ordinal))
+            {
+                nullableSuffix = true;
+                s = s.Substring(0, s.Length - 1).Trim();
+            }
+
+            if (s.EndsWith("[]", StringComparison.Ordinal))
+            {
+                isArray = true;
+                s = s.Substring(0, s.Length - 2).Trim();
+            }
+
+            if (nullableSuffix && isArray)
+                return false;
+
+            if (!Regex.IsMatch(s, @"^[A-Za-z_][A-Za-z0-9_]*(?:<>|>)?$"))
+                return false;
+
+            var normalizedType = s.Trim().ToLowerInvariant();
+            if (BuiltinSqlTypeNames.Contains(normalizedType))
+                return false;
+
+            referencedTableType = s;
+            return true;
+        }
+
+        private static readonly HashSet<string> BuiltinSqlTypeNames = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "bigint", "int", "integer", "smallint", "datetime", "timestamp", "date", "time",
+            "bool", "boolean", "decimal", "double", "float", "uuid", "json", "jsonb", "text",
+            "varchar", "nvarchar"
+        };
     }
 }
 

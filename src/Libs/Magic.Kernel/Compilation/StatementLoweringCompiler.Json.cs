@@ -143,14 +143,14 @@ namespace Magic.Kernel.Compilation
                 return;
             }
 
-            if (node is JsonIdentifierNode id && vars.TryGetValue(id.Name, out var dataVar))
+            if (node is JsonIdentifierNode id && TryResolveJsonIdentifierToSlot(id, vars, instructions, ref memorySlotCounter, out var dataSlot))
             {
                 EmitOpJsonCall(
                     sourceIndex,
                     "set",
                     path,
                     instructions,
-                    dataRef: new FunctionParameterNode { Name = "data", ParameterName = "data", EntityType = "memory", Index = dataVar.Index });
+                    dataRef: new FunctionParameterNode { Name = "data", ParameterName = "data", EntityType = "memory", Index = dataSlot });
                 return;
             }
 
@@ -174,6 +174,35 @@ namespace Magic.Kernel.Compilation
             {
                 EmitOpJsonCall(sourceIndex, "set", path, instructions, dataJson: JsonLiteralToRaw(primitive.Value));
             }
+        }
+
+        private static bool TryResolveJsonIdentifierToSlot(
+            JsonIdentifierNode idNode,
+            Dictionary<string, (string Kind, int Index)> vars,
+            List<InstructionNode> instructions,
+            ref int memorySlotCounter,
+            out int valueSlot)
+        {
+            valueSlot = -1;
+            if (vars.TryGetValue(idNode.Name, out var directVar))
+            {
+                valueSlot = directVar.Index;
+                return true;
+            }
+
+            if (!TryParseMemberAccessFromString(idNode.Name, out var memberRoot, out var memberPath))
+                return false;
+            if (!vars.TryGetValue(memberRoot, out var memberVar))
+                return false;
+
+            valueSlot = memorySlotCounter++;
+            instructions.Add(memberVar.Kind == "global"
+                ? CreatePushGlobalMemoryInstruction(memberVar.Index)
+                : CreatePushMemoryInstruction(memberVar.Index));
+            instructions.Add(CreatePushStringInstruction(memberPath));
+            instructions.Add(new InstructionNode { Opcode = "getobj" });
+            instructions.Add(CreatePopMemoryInstruction(valueSlot));
+            return true;
         }
 
         private static void EmitBuildObjectProperties(JsonObjectNode objNode, long objSlot, Dictionary<string, (string Kind, int Index)> vars, List<InstructionNode> instructions, ref int memorySlotCounter)
@@ -206,14 +235,14 @@ namespace Magic.Kernel.Compilation
                     EmitOpJsonCall(arrSlot, "append", "", instructions,
                         dataRef: new FunctionParameterNode { Name = "data", ParameterName = "data", EntityType = "memory", Index = childSlot });
                 }
-                else if (item is JsonIdentifierNode idNode && vars.TryGetValue(idNode.Name, out var valueVar))
+                else if (item is JsonIdentifierNode idNode && TryResolveJsonIdentifierToSlot(idNode, vars, instructions, ref memorySlotCounter, out var valueSlot))
                 {
                     EmitOpJsonCall(
                         arrSlot,
                         "append",
                         "",
                         instructions,
-                        dataRef: new FunctionParameterNode { Name = "data", ParameterName = "data", EntityType = "memory", Index = valueVar.Index });
+                        dataRef: new FunctionParameterNode { Name = "data", ParameterName = "data", EntityType = "memory", Index = valueSlot });
                 }
                 else if (item is JsonSymbolicNode symbolicItem)
                 {
@@ -285,6 +314,19 @@ namespace Magic.Kernel.Compilation
 
             if (!TryParseIdentifier(text, ref i, out var ident))
                 return false;
+
+            // Allow member-access references inside AGI object literals, e.g. reply.id / reply.text.
+            while (i < text.Length && text[i] == '.')
+            {
+                var dotPos = i;
+                i++;
+                if (!TryParseIdentifier(text, ref i, out var segment))
+                {
+                    i = dotPos;
+                    break;
+                }
+                ident += "." + segment;
+            }
 
             if (string.Equals(ident, "true", StringComparison.OrdinalIgnoreCase))
             {

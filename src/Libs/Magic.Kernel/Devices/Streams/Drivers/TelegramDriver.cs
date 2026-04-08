@@ -5,8 +5,6 @@ using Magic.Kernel.Devices;
 using Magic.Kernel.Core.OS;
 using Magic.Drivers.Telegram;
 using Magic.Kernel.Interpretation;
-using Telegram.Bot.Types;
-
 namespace Magic.Kernel.Devices.Streams.Drivers
 {
     /// <summary>Stream driver for Telegram: one connection per instance, Write = send to chat, ReadChunk = dequeue received (long-polling in same instance).</summary>
@@ -38,8 +36,7 @@ namespace Magic.Kernel.Devices.Streams.Drivers
             _connection = new TelegramConnection(_botToken);
             _receiveCts = new CancellationTokenSource();
             _ = _connection.RunReceiveLoopAsync(
-                (chatId, text, username, tokenHash, photo, document) =>
-                    EnqueueIncomingMessage(chatId, text, username, tokenHash, photo, document),
+                incoming => EnqueueIncomingMessage(incoming),
                 _receiveCts.Token);
             _opened = true;
             return Task.FromResult(DeviceOperationResult.Success);
@@ -149,33 +146,68 @@ namespace Magic.Kernel.Devices.Streams.Drivers
         /// <summary>
         /// Enqueue incoming message as JSON:
         /// {
+        ///   "id",
+        ///   "time",
         ///   "chatId",
         ///   "text",
         ///   "username",
         ///   "tokenHash",
         ///   "photo",
-        ///   "document"
+        ///   "document",
+        ///   "reply"
         /// }
         /// </summary>
-        public void EnqueueIncomingMessage(
-            long chatId,
-            string text,
-            string? username = null,
-            string? tokenHash = null,
-            PhotoSize[]? photo = null,
-            Document? document = null)
+        public void EnqueueIncomingMessage(TelegramIncomingMessage incoming)
         {
-            var obj = new
+            var json = JsonSerializer.Serialize(new
             {
-                chatId,
-                text,
-                username = username ?? string.Empty,
-                tokenHash = tokenHash ?? string.Empty,
-                photo,
-                document
-            };
-            var json = JsonSerializer.Serialize(obj);
+                id = incoming.Id,
+                time = incoming.Time,
+                chatId = incoming.ChatId,
+                text = incoming.Text,
+                username = !string.IsNullOrEmpty(incoming.DisplayName)
+                    ? incoming.DisplayName
+                    : (incoming.Username ?? string.Empty),
+                tokenHash = incoming.TokenHash ?? string.Empty,
+                photo = incoming.Photo,
+                document = incoming.Document,
+                reply = ToReplyObject(incoming.Reply)
+            });
             EnqueueIncoming(Encoding.UTF8.GetBytes(json));
+        }
+
+        private static object? ToReplyObject(TelegramIncomingMessage? message)
+        {
+            if (message == null)
+            {
+                // Keep shape stable so AGI code can safely use reply.id/reply.text without extra null checks.
+                return new
+                {
+                    id = (int?)null,
+                    time = (DateTime?)null,
+                    chatId = (long?)null,
+                    text = (string?)null,
+                    username = (string?)null,
+                    tokenHash = (string?)null,
+                    photo = (object?)null,
+                    document = (object?)null,
+                    reply = (object?)null
+                };
+            }
+            return new
+            {
+                id = message.Id,
+                time = message.Time,
+                chatId = message.ChatId,
+                text = message.Text,
+                username = !string.IsNullOrEmpty(message.DisplayName)
+                    ? message.DisplayName
+                    : (message.Username ?? string.Empty),
+                tokenHash = message.TokenHash ?? string.Empty,
+                photo = message.Photo,
+                document = message.Document,
+                reply = ToReplyObject(message.Reply)
+            };
         }
     }
 

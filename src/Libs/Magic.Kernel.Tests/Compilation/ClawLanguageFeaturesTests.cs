@@ -341,6 +341,28 @@ entrypoint {
         }
 
         [Fact]
+        public async Task CompileAsync_InlineIfWithParenthesizedCondition_AndAssignment_ShouldCompileSuccessfully()
+        {
+            var source = @"@AGI 0.0.1
+program Test;
+module Test/Test;
+
+procedure Main() {
+    var message := {};
+    var replyOriginal := {};
+    if (replyOriginal) message.ReplyId := replyOriginal.Id;
+}
+
+entrypoint {
+    Main;
+}";
+
+            var result = await _compiler.CompileAsync(source);
+            result.Success.Should().BeTrue(result.ErrorMessage);
+            result.Result!.Procedures.Should().ContainKey("Main");
+        }
+
+        [Fact]
         public async Task CompileAsync_AwaitStreamStatement_ShouldCompileSuccessfully()
         {
             // Arrange: "await claw1;" should compile for a stream variable.

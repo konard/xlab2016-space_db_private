@@ -23,11 +23,23 @@ namespace Magic.Kernel2.Compilation2.Ast2
         public ExpressionNode2? Initializer { get; set; }
     }
 
-    /// <summary>Assignment: x := expr;</summary>
+    /// <summary>Assignment: x := expr; OR x = expr;</summary>
     public sealed class AssignmentStatement2 : StatementNode2
     {
         public ExpressionNode2 Target { get; set; } = null!;
         public ExpressionNode2 Value { get; set; } = null!;
+    }
+
+    /// <summary>
+    /// Compound assignment: obj.Member += value.
+    /// Compiles to: getobj → callobj "add" → setobj pattern.
+    /// </summary>
+    public sealed class CompoundAssignmentStatement2 : StatementNode2
+    {
+        public ExpressionNode2 Target { get; set; } = null!;
+        public ExpressionNode2 Value { get; set; } = null!;
+        /// <summary>Operator: "+", "-", etc. (without "=")</summary>
+        public string Operator { get; set; } = "+";
     }
 
     /// <summary>Procedure/function call statement: Foo(a, b);</summary>
@@ -72,6 +84,34 @@ namespace Magic.Kernel2.Compilation2.Ast2
     {
         public string VariableName { get; set; } = "";
         public ExpressionNode2 Stream { get; set; } = null!;
+        public BlockNode2 Body { get; set; } = new();
+    }
+
+    /// <summary>
+    /// streamwait functionName(args) statement — pipelines result to function via streamwait opcode.
+    /// Compiles to: push string: "funcName"; push arg; push arity; streamwait
+    /// </summary>
+    public sealed class StreamWaitCallStatement2 : StatementNode2
+    {
+        public string FunctionName { get; set; } = "";
+        public List<ExpressionNode2> Arguments { get; set; } = new();
+    }
+
+    /// <summary>
+    /// for streamwait by delta (stream, delta [, aggregate]) { body }
+    /// Compiles to inline label-based pattern: streamwait_loop_N / streamwait_loop_N_delta / streamwait_loop_N_end.
+    /// </summary>
+    public sealed class StreamWaitByDeltaLoop2 : StatementNode2
+    {
+        /// <summary>The stream expression to wait on.</summary>
+        public ExpressionNode2 Stream { get; set; } = null!;
+        /// <summary>Wait type string, e.g. "delta".</summary>
+        public string WaitType { get; set; } = "delta";
+        /// <summary>Variable name for the delta value inside the body.</summary>
+        public string DeltaVarName { get; set; } = "";
+        /// <summary>Variable name for the aggregate value (may be empty).</summary>
+        public string AggregateVarName { get; set; } = "";
+        /// <summary>Body of the loop.</summary>
         public BlockNode2 Body { get; set; } = new();
     }
 

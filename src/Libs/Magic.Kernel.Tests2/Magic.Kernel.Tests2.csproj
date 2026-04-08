@@ -25,4 +25,11 @@
     <ProjectReference Include="..\Magic.Kernel\Magic.Kernel.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Golden reference AGIASM files copied to output so tests can read them. -->
+    <Content Include="..\..\..\..\..\design\Space\samples\telegram_to_db.agiasm"
+             Link="GoldenReference\telegram_to_db.agiasm"
+             CopyToOutputDirectory="Always" />
+  </ItemGroup>
+
 </Project>

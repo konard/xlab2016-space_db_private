@@ -1,3 +1,4 @@
+using System.IO;
 using FluentAssertions;
 using Magic.Kernel;
 using Magic.Kernel.Compilation;
@@ -1566,6 +1567,160 @@ namespace Magic.Kernel.Tests2.Compilation2
             v2.Count.Should().Be(v1.Count,
                 $"[{blockName}] instruction count mismatch. V1={v1.Count} V2={v2.Count}. " +
                 $"First divergence at or near instruction #{Math.Min(v1.Count, v2.Count)}");
+        }
+
+        // ─── telegram_to_db V2 golden reference comparison ───────────────────────
+
+        /// <summary>
+        /// Regression test for issue #39 ("Неверная компиляция").
+        /// Compiles <c>telegram_to_db.agi</c> with V2 compiler, serializes to AGIASM text,
+        /// and compares it line-by-line against the golden reference file
+        /// <c>design/Space/samples/telegram_to_db.agiasm</c>.
+        /// This test must pass in CI on every commit.
+        /// </summary>
+        [Fact]
+        public async Task TelegramToDb_V2_ShouldMatchGoldenReference()
+        {
+            // Read the golden reference AGIASM file (copied to output during build).
+            var goldenPath = Path.Combine(AppContext.BaseDirectory, "GoldenReference", "telegram_to_db.agiasm");
+            File.Exists(goldenPath).Should().BeTrue(
+                $"Golden reference file not found at {goldenPath}. " +
+                "Ensure the .csproj links design/Space/samples/telegram_to_db.agiasm with CopyToOutputDirectory=Always.");
+            var goldenText = await File.ReadAllTextAsync(goldenPath);
+
+            const string source = """
+                @AGI 0.0.1;
+
+                program telegram_to_db;
+                system samples;
+                module telegram;
+
+                Message<> : table {
+                	Id: bigint primary key identity;
+                	Time: datetime;
+                	TokenHash: nvarchar(250)?;
+                	ChatId: nvarchar(250)?;
+                	Username: nvarchar(250)?;
+                	MessageId: int? index;
+                	MessageTime: datetime?;
+                	Message: json?;
+                	ReplyMessageId: int? index;
+                	ReplyMessage: json?;
+                	Photo: json?;
+                	Document: json?;
+
+                	Reply: Message;
+                }
+
+                Db> : database {
+                	Message<>;
+                }
+
+                procedure Main {
+                	var stream1 := stream<messenger, telegram>;
+                	var stream2 := stream<network, file, telegram>;
+                	var vault1 := vault;
+                	var token := vault1.read("token");
+                	stream1.open({
+                		token: token
+                	});
+                	var connectionString := vault1.read("connectionString");
+                	var db1 := database<postgres, Db>>;
+                	db1.open(connectionString);
+
+                	for streamwait by delta (stream1, delta, aggregate) {
+                		var data := delta.data;
+                		// !: accessor to anonymous type
+                		var messageId := data!.id;
+                		var messageTime := data!.time;
+                		var tokenHash := data!.tokenHash;
+                		var chatId := data!.chatId;
+                		var text := data!.text;
+                		var user := data!.username;
+                		var photo := data!.photo;
+                		var document := data!.document;
+                		var reply := data!.reply;
+                		var time = :time;
+
+                		var message = {
+                			MessageId: messageId,
+                			MessageTime: messageTime,
+                			Time: time,
+                			TokenHash: tokenHash,
+                			ChatId: chatId,
+                			Username: user,
+                			Message: text,
+                			ReplyMessageId: reply.id,
+                			ReplyMessage: reply.text
+                		};
+                		print(tokenHash, chatId, text, photo, document, user, time);
+
+                		if (reply.id) {
+                			var replyOriginal := await db1.Message<>.find(_ => _.MessageId = reply.id);
+                			if (replyOriginal) message.ReplyId := replyOriginal.Id;
+                		}
+
+                		if (photo) {
+                			stream2.open({
+                				token: token,
+                				file: photo
+                			});
+                			var photoData := streamwait stream2;
+                			message.Photo = {
+                				data: photoData
+                			}
+                		}
+
+                		if (document) {
+                			stream2.open({
+                				token: token,
+                				file: document
+                			});
+                			var documentData := streamwait stream2;
+                			message.Document = {
+                				data: documentData
+                			}
+                		}
+
+                		db1.Message<> += message;
+                		// save data
+                		await db1;
+
+                		// pipeline message to external code
+                		streamwait print(message);
+                	}
+                }
+
+                entrypoint {
+                	Main;
+                }
+                """;
+
+            // Compile with V2.
+            var v2Compiler = new Compiler2();
+            var v2Result = await v2Compiler.CompileAsync(source);
+            v2Result.Success.Should().BeTrue($"V2 compile failed: {v2Result.ErrorMessage}");
+            v2Result.Result.Should().NotBeNull();
+
+            // Serialize to AGIASM text using the public API.
+            var serializer = v2Result.Result!.ToAgiasmText();
+
+            // Normalize line endings for comparison.
+            var normalize = static (string s) => s.Replace("\r\n", "\n").Replace("\r", "\n").TrimEnd();
+            var actualLines   = normalize(serializer).Split('\n');
+            var expectedLines = normalize(goldenText).Split('\n');
+
+            // Compare line by line for a useful diff.
+            for (var i = 0; i < Math.Min(actualLines.Length, expectedLines.Length); i++)
+            {
+                actualLines[i].Should().Be(expectedLines[i],
+                    $"Line {i + 1} of AGIASM output does not match golden reference.\n" +
+                    $"  Expected: {expectedLines[i]}\n" +
+                    $"  Actual:   {actualLines[i]}");
+            }
+
+            actualLines.Length.Should().Be(expectedLines.Length,
+                $"AGIASM output has {actualLines.Length} lines but golden reference has {expectedLines.Length} lines.");
         }
 
         // ─── Helpers ──────────────────────────────────────────────────────────────

@@ -15,6 +15,12 @@ namespace Magic.Kernel2.Compilation2.Ast2
         public List<StatementNode2> Statements { get; set; } = new();
     }
 
+    /// <summary>An expression used as a statement (e.g., inside lambda bodies).</summary>
+    public sealed class ExpressionStatement2 : StatementNode2
+    {
+        public ExpressionNode2 Expression { get; set; } = null!;
+    }
+
     /// <summary>Variable declaration: var x := expr; OR var x: Type := expr;</summary>
     public sealed class VarDeclarationStatement2 : StatementNode2
     {

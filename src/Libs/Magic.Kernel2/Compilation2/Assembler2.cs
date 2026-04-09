@@ -472,6 +472,11 @@ namespace Magic.Kernel2.Compilation2
                 case NestedFunctionStatement2 nested:
                     result.Add(Emit(Opcodes.Nop, nested.SourceLine));
                     break;
+
+                case ExpressionStatement2 exprStmt:
+                    // Expression used as statement — emit into a temp slot (result discarded).
+                    EmitExpression(exprStmt.Expression, scope, result);
+                    break;
             }
         }
 
@@ -502,8 +507,16 @@ namespace Magic.Kernel2.Compilation2
                 }
                 else
                 {
-                    // For all other expressions: allocate local first (standard pattern).
+                    // Allocate local first (standard pattern).
                     var slot = scope.AllocateLocal(varDecl.VariableName);
+                    // V1 double-push: if expr starts by pushing a receiver (member access / method call),
+                    // pre-push that receiver into the slot as a placeholder before evaluating the full expr.
+                    var receiver = TryGetFirstPushReceiver(varDecl.Initializer);
+                    if (receiver != null)
+                    {
+                        EmitExpression(receiver, scope, result);
+                        result.Add(PopSlot(slot, varDecl.SourceLine));
+                    }
                     EmitExpression(varDecl.Initializer, scope, result);
                     result.Add(PopSlot(slot, varDecl.SourceLine));
                 }
@@ -529,6 +542,33 @@ namespace Magic.Kernel2.Compilation2
         };
 
         private static bool IsBuiltinTypeName(string name) => BuiltinTypeNames.Contains(name);
+
+        /// <summary>
+        /// Returns the "first push receiver" of an expression — the innermost object that would
+        /// be pushed first when evaluating the expression. Used to replicate V1's double-push
+        /// pattern where the receiver is pre-pushed into the destination slot before full evaluation.
+        ///
+        /// Returns null if the expression starts with a non-slot push (literal, builtin type, etc.)
+        /// or if it is a simple variable reference with no receiver.
+        /// </summary>
+        private static ExpressionNode2? TryGetFirstPushReceiver(ExpressionNode2 expr)
+        {
+            switch (expr)
+            {
+                case MemberAccessExpression2 ma:
+                    // Recursively find the deepest receiver; if it resolves to something
+                    // (i.e., the object itself has a receiver), return it; otherwise return ma.Object.
+                    return TryGetFirstPushReceiver(ma.Object) ?? ma.Object;
+                case CallExpression2 call when call.Callee is MemberAccessExpression2 ma2:
+                    return TryGetFirstPushReceiver(ma2.Object) ?? ma2.Object;
+                case NullAssertExpression2 na:
+                    return TryGetFirstPushReceiver(na.Operand);
+                case AwaitExpression2 aw:
+                    return TryGetFirstPushReceiver(aw.Operand);
+                default:
+                    return null;
+            }
+        }
 
         // ─── Assignment ───────────────────────────────────────────────────────────
 
@@ -676,12 +716,14 @@ namespace Magic.Kernel2.Compilation2
 
         // ─── If statement ─────────────────────────────────────────────────────────
 
-        private static int _labelCounter;
+        // Shared counter for label generation — matches V1 where both streamwait loops and
+        // if/switch labels share a single counter (StreamLoopCounter) incremented sequentially.
+        private int _sharedLabelCounter;
 
         private void EmitIfStatement(IfStatement2 ifStmt, ScopeSymbols2 scope, ExecutionBlock result, bool isProcedure)
         {
             // Use V1-compatible label names: if_end_N where N = ++counter + 1000
-            var raw = System.Threading.Interlocked.Increment(ref _labelCounter);
+            var raw = ++_sharedLabelCounter;
             var ifId = raw + 1000;
             var elseLabel = $"if_else_{ifId}";
             var endLabel  = ifStmt.ElseBlock != null ? $"if_else_end_{ifId}" : $"if_end_{ifId}";
@@ -690,7 +732,15 @@ namespace Magic.Kernel2.Compilation2
             var jumpTarget = ifStmt.ElseBlock != null ? elseLabel : endLabel;
 
             // Evaluate condition into a temp slot, then cmp [slot], 0; je label.
+            // V1 double-push: if condition starts by pushing a receiver (member access),
+            // pre-push that receiver into condSlot before full evaluation.
             var condSlot = scope.AllocateTemp();
+            var condReceiver = TryGetFirstPushReceiver(ifStmt.Condition);
+            if (condReceiver != null)
+            {
+                EmitExpression(condReceiver, scope, result);
+                result.Add(PopSlot(condSlot, ifStmt.SourceLine));
+            }
             EmitExpression(ifStmt.Condition, scope, result);
             result.Add(PopSlot(condSlot, ifStmt.SourceLine));
 
@@ -726,7 +776,7 @@ namespace Magic.Kernel2.Compilation2
 
         private void EmitSwitchStatement(SwitchStatement2 switchStmt, ScopeSymbols2 scope, ExecutionBlock result, bool isProcedure)
         {
-            var id = System.Threading.Interlocked.Increment(ref _labelCounter);
+            var id = ++_sharedLabelCounter;
             var endLabel = $"__endswitch_{id}";
 
             // Evaluate the switch expression once into a temp slot.
@@ -770,8 +820,6 @@ namespace Magic.Kernel2.Compilation2
 
         // ─── Stream wait by delta loop ────────────────────────────────────────────
 
-        private static int _streamLoopCounter;
-
         /// <summary>
         /// Emits the V1-compatible inline label-based pattern for:
         ///   for streamwait by delta (streamExpr, deltaVar [, aggregateVar]) { body }
@@ -790,7 +838,7 @@ namespace Magic.Kernel2.Compilation2
         /// </summary>
         private void EmitStreamWaitByDeltaLoop(StreamWaitByDeltaLoop2 loop, ScopeSymbols2 scope, ExecutionBlock result, bool isProcedure)
         {
-            var n = System.Threading.Interlocked.Increment(ref _streamLoopCounter);
+            var n = ++_sharedLabelCounter;
             var loopLabel = $"streamwait_loop_{n}";
             var bodyLabel = $"streamwait_loop_{n}_delta";
             var endLabel  = $"streamwait_loop_{n}_end";
@@ -877,7 +925,7 @@ namespace Magic.Kernel2.Compilation2
 
         private void EmitStreamWaitForLoop(StreamWaitForLoop2 forLoop, ScopeSymbols2 scope, ExecutionBlock result, bool isProcedure)
         {
-            var id = System.Threading.Interlocked.Increment(ref _labelCounter);
+            var id = ++_sharedLabelCounter;
             var loopLabel = $"__streamfor_{id}";
             var endLabel = $"__endstreamfor_{id}";
 
@@ -1238,13 +1286,115 @@ namespace Magic.Kernel2.Compilation2
             result.Add(new Command { Opcode = Opcodes.DefGen, SourceLine = generic.SourceLine });
         }
 
+        private static Command PushLambdaArg(int argIndex, int sourceLine) => new()
+        {
+            Opcode = Opcodes.Push,
+            Operand1 = new PushOperand { Kind = "LambdaArg", Value = argIndex },
+            SourceLine = sourceLine
+        };
+
         private void EmitLambda(LambdaExpression2 lambda, ScopeSymbols2 scope, ExecutionBlock result)
         {
-            // Lambda: emit Lambda opcode followed by body, then DefExpr.
-            result.Add(new Command { Opcode = Opcodes.Lambda, SourceLine = lambda.SourceLine });
+            // V1-compatible lambda emission for: param => param.Member = capturedExpr
+            // Check for the specific pattern: param => param.Member = rhs
+            // This is parsed by ParseExpression as MemberAccess(param, "Member = rhs")
+            // because the parser greedily takes everything after the dot as the member name.
+            if (lambda.Parameters.Count == 1 &&
+                lambda.Body.Statements.Count == 1 &&
+                lambda.Body.Statements[0] is ExpressionStatement2 bodyExprStmt)
+            {
+                var paramName = lambda.Parameters[0];
+                var bodyExpr = bodyExprStmt.Expression;
+
+                // Pattern 1: param.Member == rhs (parsed as BinaryExpression)
+                if (bodyExpr is BinaryExpression2 binExpr && binExpr.Operator == "==" &&
+                    binExpr.Left is MemberAccessExpression2 lhsMa1 &&
+                    lhsMa1.Object is VariableExpression2 lhsVar1 && lhsVar1.Name == paramName)
+                {
+                    EmitLambdaMemberEquality(paramName, lhsMa1.MemberName, binExpr.Right, scope, result, lambda.SourceLine);
+                    return;
+                }
+
+                // Pattern 2: parsed as MemberAccess(param, "Member = rhs")
+                // because parser takes all after dot as member name
+                if (bodyExpr is MemberAccessExpression2 ma &&
+                    ma.Object is VariableExpression2 maVar && maVar.Name == paramName)
+                {
+                    // The member name may contain "= rhs" if '=' was included in member name parsing
+                    var memberText = ma.MemberName;
+                    var eqIdx = memberText.IndexOf('=');
+                    if (eqIdx > 0 && (eqIdx + 1 >= memberText.Length || memberText[eqIdx + 1] != '='))
+                    {
+                        var actualMember = memberText.Substring(0, eqIdx).Trim();
+                        var rhsText = memberText.Substring(eqIdx + 1).Trim();
+                        var rhsExpr = new StatementParser2().ParseExpression(rhsText, lambda.SourceLine);
+                        EmitLambdaMemberEquality(paramName, actualMember, rhsExpr, scope, result, lambda.SourceLine);
+                        return;
+                    }
+                }
+            }
+
+            // Fallback: generic lambda emission (expr + body + lambda + defexpr)
+            result.Add(Emit(Opcodes.Expr, lambda.SourceLine));
             var lambdaBody = EmitBlock(lambda.Body, scope, isProcedure: false);
             result.AddRange(lambdaBody);
+            result.Add(Emit(Opcodes.Lambda, lambda.SourceLine));
             result.Add(Emit(Opcodes.DefExpr, lambda.SourceLine));
+        }
+
+        /// <summary>
+        /// Emit V1-compatible lambda for pattern: param => param.Member = rhs
+        ///
+        /// Output:
+        ///   [pre-compute rhs into rightSlot]
+        ///   expr
+        ///   push lambda: arg0   ← double-push placeholder
+        ///   push lambda: arg0   ← actual for getobj
+        ///   push string: "Member"
+        ///   getobj
+        ///   pop [tempSlot]
+        ///   push [tempSlot]
+        ///   push [rightSlot]
+        ///   equals
+        ///   lambda
+        ///   defexpr
+        /// </summary>
+        private void EmitLambdaMemberEquality(
+            string paramName, string memberName, ExpressionNode2 rhsExpr,
+            ScopeSymbols2 scope, ExecutionBlock result, int sourceLine)
+        {
+            // Pre-compute RHS into rightSlot (before expr opcode)
+            var tempSlot = scope.AllocateTemp();   // for _.Member result
+            var rightSlot = scope.AllocateTemp();  // for rhs value
+
+            // Pre-compute rhs (captured from outer scope)
+            // V1 also uses double-push for rhs if it's a member access:
+            var rhsReceiver = TryGetFirstPushReceiver(rhsExpr);
+            if (rhsReceiver != null)
+            {
+                EmitExpression(rhsReceiver, scope, result);
+                result.Add(PopSlot(rightSlot, sourceLine));
+            }
+            EmitExpression(rhsExpr, scope, result);
+            result.Add(PopSlot(rightSlot, sourceLine));
+
+            // Start lambda
+            result.Add(Emit(Opcodes.Expr, sourceLine));
+
+            // Double-push lambda arg0 (the parameter)
+            result.Add(PushLambdaArg(0, sourceLine));
+            result.Add(PushLambdaArg(0, sourceLine));
+            result.Add(PushString(memberName, sourceLine));
+            result.Add(Emit(Opcodes.GetObj, sourceLine));
+            result.Add(PopSlot(tempSlot, sourceLine));
+
+            // Compare LHS with RHS
+            result.Add(PushSlot(tempSlot, sourceLine));
+            result.Add(PushSlot(rightSlot, sourceLine));
+            result.Add(Emit(Opcodes.Equals, sourceLine));
+
+            result.Add(Emit(Opcodes.Lambda, sourceLine));
+            result.Add(Emit(Opcodes.DefExpr, sourceLine));
         }
 
         // ─── Helpers ──────────────────────────────────────────────────────────────

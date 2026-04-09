@@ -1076,6 +1076,34 @@ namespace Magic.Kernel2.Compilation2
                     return ParseExpression(t.Substring(1, t.Length - 2), sourceLine);
             }
 
+            // Lambda expression: param => body_expr
+            // Matches patterns like: _ => _.Member = value
+            var arrowIdx = FindArrowOutsideParens(t);
+            if (arrowIdx > 0)
+            {
+                var paramName = t.Substring(0, arrowIdx).Trim();
+                var bodyText = t.Substring(arrowIdx + 2).Trim();
+                if (IsSimpleIdentifier(paramName) && !string.IsNullOrEmpty(bodyText))
+                {
+                    // Parse body as an expression
+                    var bodyExpr = ParseExpression(bodyText, sourceLine);
+                    // Wrap in a block with a single expression statement
+                    var body = new BlockNode2
+                    {
+                        Statements = new System.Collections.Generic.List<StatementNode2>
+                        {
+                            new ExpressionStatement2 { Expression = bodyExpr, SourceLine = sourceLine }
+                        }
+                    };
+                    return new LambdaExpression2
+                    {
+                        SourceLine = sourceLine,
+                        Parameters = new System.Collections.Generic.List<string> { paramName },
+                        Body = body
+                    };
+                }
+            }
+
             // Identifier or qualified name
             return new VariableExpression2 { SourceLine = sourceLine, Name = t };
         }
@@ -1327,6 +1355,31 @@ namespace Magic.Kernel2.Compilation2
                 else if (c == ')' || c == ']' || c == '}') depth--;
                 else if (depth == 0 && text.Substring(i, op.Length) == op)
                     return i;
+            }
+            return -1;
+        }
+
+        /// <summary>Find the index of '=>' outside parentheses, brackets, braces, and strings.</summary>
+        private static int FindArrowOutsideParens(string text)
+        {
+            if (text.Length < 3) return -1;
+            var depth = 0;
+            var inString = false;
+            for (var i = 0; i <= text.Length - 2; i++)
+            {
+                var c = text[i];
+                if (c == '"' && (i == 0 || text[i - 1] != '\\'))
+                    inString = !inString;
+                if (inString) continue;
+
+                if (c == '(' || c == '[' || c == '{') depth++;
+                else if (c == ')' || c == ']' || c == '}') depth--;
+                else if (depth == 0 && c == '=' && i + 1 < text.Length && text[i + 1] == '>')
+                {
+                    // Make sure it's not '==' or other operator
+                    if (i == 0 || (text[i - 1] != '<' && text[i - 1] != '>' && text[i - 1] != '!' && text[i - 1] != '='))
+                        return i;
+                }
             }
             return -1;
         }

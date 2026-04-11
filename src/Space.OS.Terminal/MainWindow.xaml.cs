@@ -1,21 +1,10 @@
-using System.Collections.Generic;
-using System.Linq;
-using System.IO;
-using System.Diagnostics;
-using System.Net.Http;
-using System.Text;
-using System.Text.RegularExpressions;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Threading;
-using WinForms = System.Windows.Forms;
+using ICSharpCode.AvalonEdit;
+using ICSharpCode.AvalonEdit.Rendering;
 using Magic.Kernel;
 using Magic.Kernel.Compilation;
-using Magic.Kernel.Interpretation;
 using Magic.Kernel.Core;
 using Magic.Kernel.Core.OS;
+using Magic.Kernel.Interpretation;
 using Magic.Kernel.Runtime;
 using Magic.Kernel.Terminal.Models;
 using Magic.Kernel.Terminal.Services;
@@ -23,8 +12,21 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using SpaceDb.Services;
-using ICSharpCode.AvalonEdit;
-using ICSharpCode.AvalonEdit.Rendering;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Net.Http;
+using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Documents;
+using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Threading;
+using WinForms = System.Windows.Forms;
 
 namespace Space.OS.Terminal;
 
@@ -2064,6 +2066,8 @@ public partial class MainWindow : Window
             {
                 SectionMeta.Text = "kernel started; no executionUnits in Space/dev.json";
                 RefreshMonitor("monitor-exes");
+
+                Console.WriteLine("kernel started; no executionUnits in Space/dev.json");
                 return;
             }
 
@@ -2079,6 +2083,8 @@ public partial class MainWindow : Window
                     InstanceCount = unit.InstanceCount
                 };
                 _executionRecords.Add(record);
+
+
 
                 _ = RunUnitInBackgroundAsync(record, unit);
             }

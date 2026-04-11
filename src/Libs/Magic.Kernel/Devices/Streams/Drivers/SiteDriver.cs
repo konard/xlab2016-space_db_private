@@ -1,12 +1,17 @@
 using System.Net;
 using System.Text;
-using Magic.Kernel.Devices;
+using Magic.Kernel.Compilation;
+using Magic.Kernel.Core;
+using Magic.Kernel.Devices.Streams.Views;
 
 namespace Magic.Kernel.Devices.Streams.Drivers
 {
     /// <summary>
-    /// HTTP Site server: listens on a configurable port and returns an empty HTML page for any request.
-    /// Suitable for use as a simple site device in the AGI stream system.
+    /// HTTP Site server: listens on a configurable port and serves HTML views by route.
+    /// Routes requests to registered views by path (case-insensitive).
+    /// The first registered view is also served at the root '/' path.
+    /// Implements the rendering pipeline:
+    ///   DefType (view) → ViewDefinition → HtmlNode AST → RenderDriver → HTML response
     /// </summary>
     public sealed class SiteDriver : IStreamDevice
     {
@@ -18,6 +23,12 @@ namespace Magic.Kernel.Devices.Streams.Drivers
         private Task? _serverTask;
         private readonly TaskCompletionSource _stoppedTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        /// <summary>Registered views keyed by lowercase view name (e.g. "login", "dashboard").</summary>
+        private readonly Dictionary<string, ViewDefinition> _views = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>The default view served at the root '/' path (typically the first registered view).</summary>
+        private ViewDefinition? _defaultView;
+
         private static readonly byte[] EmptyHtmlBytes = Encoding.UTF8.GetBytes("<html></html>");
 
         public int Port => _port;
@@ -27,6 +38,101 @@ namespace Magic.Kernel.Devices.Streams.Drivers
         public void SetServerName(string name)
         {
             _serverName = string.IsNullOrWhiteSpace(name) ? "site" : name.Trim();
+        }
+
+        /// <summary>
+        /// Registers view definitions from compiled DefType objects in the executable unit.
+        /// View types are identified by having a <see cref="RenderDevice"/> generalization.
+        /// When viewTypeNames is specified, only those type names are registered (in order).
+        /// Otherwise all types with RenderDevice generalizations are registered.
+        /// </summary>
+        public void RegisterViewsFromUnit(ExecutableUnit unit, IReadOnlyList<string>? viewTypeNames = null)
+        {
+            if (unit?.Types == null)
+                return;
+
+            IEnumerable<DefType> candidates;
+            if (viewTypeNames != null && viewTypeNames.Count > 0)
+            {
+                // Preserve order from site definition.
+                candidates = viewTypeNames
+                    .SelectMany(name => unit.Types.Where(t =>
+                        string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(t.FullName, name, StringComparison.OrdinalIgnoreCase)))
+                    .Distinct();
+            }
+            else
+            {
+                // Fall back: any type with a RenderDevice generalization.
+                candidates = unit.Types.Where(t =>
+                    t.Generalizations.Any(g => g is RenderDevice));
+            }
+
+            foreach (var defType in candidates)
+            {
+                var viewDef = BuildViewDefinition(defType);
+                if (viewDef == null)
+                    continue;
+
+                _views[viewDef.Name] = viewDef;
+
+                // First view becomes the default (served at '/').
+                _defaultView ??= viewDef;
+
+                Console.WriteLine($"[{_serverName}] [site] Registered view '{viewDef.Name}' → /{viewDef.Name.ToLowerInvariant()}");
+            }
+        }
+
+        /// <summary>
+        /// Registers a view definition directly (used when views are provided programmatically
+        /// or extracted from rendered method output).
+        /// </summary>
+        public void RegisterView(ViewDefinition view)
+        {
+            if (view == null || string.IsNullOrWhiteSpace(view.Name))
+                return;
+            _views[view.Name] = view;
+            _defaultView ??= view;
+        }
+
+        /// <summary>Builds a <see cref="ViewDefinition"/> from a compiled <see cref="DefType"/> view type.</summary>
+        private static ViewDefinition? BuildViewDefinition(DefType defType)
+        {
+            if (defType == null)
+                return null;
+
+            var viewName = defType.Name?.Trim();
+            if (string.IsNullOrEmpty(viewName))
+                return null;
+
+            var view = new ViewDefinition { Name = viewName };
+
+            // Extract RenderDevice (if present) to get pre-rendered HTML.
+            var renderDevice = defType.Generalizations.OfType<RenderDevice>().FirstOrDefault();
+            if (renderDevice?.ViewDefinition != null)
+            {
+                view.RenderResult = renderDevice.ViewDefinition.RenderResult;
+                view.RawHtml = renderDevice.ViewDefinition.RawHtml;
+                view.Fields = renderDevice.ViewDefinition.Fields;
+                view.Buttons = renderDevice.ViewDefinition.Buttons;
+                return view;
+            }
+
+            // Extract fields from the type schema.
+            foreach (var field in defType.Fields)
+            {
+                var fieldName = (field.Name ?? "").Trim();
+                if (string.IsNullOrEmpty(fieldName))
+                    continue;
+
+                view.Fields.Add(new ViewField
+                {
+                    Name = fieldName,
+                    FieldType = (field.Type ?? "string").Trim()
+                });
+            }
+
+            return view;
         }
 
         public void ParseAndApplyConfig(object? config)
@@ -65,6 +171,8 @@ namespace Magic.Kernel.Devices.Streams.Drivers
             }
 
             Console.WriteLine($"[{_serverName}] [site] Listening on port {_port}");
+            if (_defaultView != null)
+                Console.WriteLine($"[{_serverName}] [site] Default view: '{_defaultView.Name}' → http://localhost:{_port}/{_defaultView.Name.ToLowerInvariant()}");
 
             _serverTask = Task.Run(() => ServeLoopAsync(token), CancellationToken.None);
 
@@ -107,22 +215,51 @@ namespace Magic.Kernel.Devices.Streams.Drivers
             }
         }
 
-        private static async Task HandleRequestAsync(HttpListenerContext ctx)
+        private async Task HandleRequestAsync(HttpListenerContext ctx)
         {
             try
             {
+                var path = ctx.Request.Url?.AbsolutePath ?? "/";
+                var html = ResolveViewHtml(path);
+
+                var htmlBytes = Encoding.UTF8.GetBytes(html);
                 var response = ctx.Response;
                 response.StatusCode = 200;
                 response.ContentType = "text/html; charset=utf-8";
-                response.ContentLength64 = EmptyHtmlBytes.Length;
+                response.ContentLength64 = htmlBytes.Length;
 
-                await response.OutputStream.WriteAsync(EmptyHtmlBytes, 0, EmptyHtmlBytes.Length).ConfigureAwait(false);
+                await response.OutputStream.WriteAsync(htmlBytes, 0, htmlBytes.Length).ConfigureAwait(false);
                 response.OutputStream.Close();
             }
             catch
             {
                 // ignore per-request errors
             }
+        }
+
+        /// <summary>
+        /// Resolves the HTML to serve for a given request path.
+        /// Routing rules:
+        ///   '/' or '/login' (first view name)  → default view
+        ///   '/{viewName}' (case-insensitive)    → matching named view
+        ///   No match                            → empty HTML page
+        /// </summary>
+        private string ResolveViewHtml(string path)
+        {
+            var normalizedPath = (path ?? "/").Trim('/').Trim();
+
+            // Root path → default (first) view.
+            if (string.IsNullOrEmpty(normalizedPath))
+            {
+                return _defaultView?.RenderHtml() ?? Encoding.UTF8.GetString(EmptyHtmlBytes);
+            }
+
+            // Case-insensitive lookup by view name.
+            if (_views.TryGetValue(normalizedPath, out var namedView))
+                return namedView.RenderHtml();
+
+            // No match.
+            return Encoding.UTF8.GetString(EmptyHtmlBytes);
         }
 
         /// <summary>Waits until the server stops (listener closed or cancelled).</summary>

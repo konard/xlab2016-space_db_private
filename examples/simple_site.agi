@@ -4,7 +4,28 @@ program simple_site;
 system samples;
 module views;
 
+Login{} : view {
+  Username: field<string>(label: "Username");
+  Password: field<string>(type: "password");
+  Logon: button;
+  Error: bool;
+
+  method Render() {
+    return html: <html>
+      <body>
+        <div id="login">
+          Username
+          Password
+          <button>Login</button>
+          <div id="error">Неверный логин или пароль</div>
+        </div>
+      </body>
+    </html>;
+  }
+}
+
 Site1} : site {
+  Login{};
 }
 
 procedure Main() {

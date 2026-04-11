@@ -428,7 +428,30 @@ namespace Magic.Kernel.Core.OS
             }
             if (streamDevice != null && genSet.Contains("site"))
             {
-                defType.Generalizations.Add(new Devices.Streams.SiteStreamDevice());
+                // Collect view type names (all genValues that are not "site" and are non-empty strings).
+                var siteDevice = new Devices.Streams.SiteStreamDevice();
+                foreach (var g in genValues)
+                {
+                    if (g is string viewName &&
+                        !string.IsNullOrWhiteSpace(viewName) &&
+                        !string.Equals(viewName, "site", StringComparison.OrdinalIgnoreCase))
+                    {
+                        siteDevice.ViewTypeNames.Add(viewName.Trim());
+                    }
+                }
+                defType.Generalizations.Add(siteDevice);
+                return defObj;
+            }
+            if (genSet.Contains("view"))
+            {
+                // "view" generalization: marks a DefType as a view — adds a RenderDevice.
+                defType.Generalizations.Add(new Devices.Streams.RenderDevice());
+                return defObj;
+            }
+            if (genSet.Contains("render"))
+            {
+                // "render" generalization: alias for view.
+                defType.Generalizations.Add(new Devices.Streams.RenderDevice());
                 return defObj;
             }
             if (streamDevice != null && genSet.Contains("inference") && genSet.Contains("openai"))
@@ -473,6 +496,10 @@ namespace Magic.Kernel.Core.OS
                 else if (string.Equals(g as string, "claw", StringComparison.OrdinalIgnoreCase))
                     ; // handled by combined genSet check above
                 else if (string.Equals(g as string, "site", StringComparison.OrdinalIgnoreCase))
+                    ; // handled by combined genSet check above
+                else if (string.Equals(g as string, "view", StringComparison.OrdinalIgnoreCase))
+                    ; // handled by combined genSet check above
+                else if (string.Equals(g as string, "render", StringComparison.OrdinalIgnoreCase))
                     ; // handled by combined genSet check above
                 else if (string.Equals(g as string, "inference", StringComparison.OrdinalIgnoreCase))
                     ; // handled by combined genSet checks above

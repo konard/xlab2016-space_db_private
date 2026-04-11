@@ -34,6 +34,10 @@ namespace Magic.Kernel2.Compilation2
             if (string.IsNullOrWhiteSpace(trimmed))
                 return null;
 
+            // Skip comment lines.
+            if (trimmed.StartsWith("//", StringComparison.Ordinal))
+                return null;
+
             StatementNode2? result = null;
 
             // Variable declaration: var x := expr  OR  var x: Type := expr
@@ -372,8 +376,16 @@ namespace Magic.Kernel2.Compilation2
             if (!hasVar)
                 return false;
 
-            // Find `:=` assignment
+            // Find `:=` or `=` assignment (`:=` takes priority to avoid matching `==`)
             var assignIdx = t.IndexOf(":=", StringComparison.Ordinal);
+            var assignLen = 2;
+
+            if (assignIdx < 0)
+            {
+                // Try plain `=` (but not `==`)
+                assignIdx = FindPlainAssignment(t);
+                assignLen = 1;
+            }
 
             string varName;
             string? explicitType = null;
@@ -397,8 +409,13 @@ namespace Magic.Kernel2.Compilation2
                 if (!IsValidIdentifier(varName))
                     return false;
 
-                var rhs = t.Substring(assignIdx + 2).Trim();
-                var initExpr = ParseExpression(rhs, sourceLine);
+                var rhs = t.Substring(assignIdx + assignLen).Trim();
+
+                // streamwait expr as initializer is not (yet) supported as an expression —
+                // match V1 behavior: allocate the variable slot but emit no assignment instructions.
+                ExpressionNode2? initExpr = rhs.StartsWith("streamwait ", StringComparison.OrdinalIgnoreCase)
+                    ? null
+                    : ParseExpression(rhs, sourceLine);
 
                 result = new VarDeclarationStatement2
                 {
@@ -494,6 +511,13 @@ namespace Magic.Kernel2.Compilation2
                         }
                     }
                 }
+            }
+            else if (!string.IsNullOrWhiteSpace(afterCond))
+            {
+                // Single-statement if without braces: if (cond) stmt;
+                var thenStmt = ParseStatement(afterCond, sourceLine);
+                if (thenStmt != null)
+                    thenBlock.Statements.Add(thenStmt);
             }
 
             result = new IfStatement2
@@ -622,8 +646,16 @@ namespace Magic.Kernel2.Compilation2
                 !text.StartsWith("for(", StringComparison.OrdinalIgnoreCase))
                 return false;
 
-            // for (var x in stream) { ... }
             var rest = text.Substring(3).TrimStart();
+
+            // for streamwait [sync] by <waitType> (stream, delta [, aggregate]) { body }
+            if (rest.StartsWith("streamwait", StringComparison.OrdinalIgnoreCase))
+            {
+                if (TryParseStreamWaitByDeltaLoop(rest, sourceLine, out result))
+                    return true;
+            }
+
+            // for (var x in stream) { ... }
             if (!rest.StartsWith("("))
                 return false;
 
@@ -663,11 +695,105 @@ namespace Magic.Kernel2.Compilation2
             return true;
         }
 
+        /// <summary>
+        /// Parses: streamwait [sync] by &lt;waitType&gt; (streamExpr, deltaVar [, aggregateVar]) { body }
+        /// The caller has already consumed "for " and passes the rest starting with "streamwait".
+        /// </summary>
+        private bool TryParseStreamWaitByDeltaLoop(string rest, int sourceLine, out StatementNode2? result)
+        {
+            result = null;
+
+            // Skip optional "sync" keyword after "streamwait"
+            var after = rest.Substring("streamwait".Length).TrimStart();
+            if (after.StartsWith("sync ", StringComparison.OrdinalIgnoreCase))
+                after = after.Substring(4).TrimStart();
+
+            // Expect "by"
+            if (!after.StartsWith("by ", StringComparison.OrdinalIgnoreCase))
+                return false;
+            after = after.Substring(2).TrimStart();
+
+            // Read waitType (identifier before '(')
+            var parenIdx = after.IndexOf('(');
+            if (parenIdx <= 0)
+                return false;
+
+            var waitType = after.Substring(0, parenIdx).Trim();
+            if (string.IsNullOrEmpty(waitType))
+                return false;
+
+            var parenPart = after.Substring(parenIdx);
+            var parenEnd = FindMatchingParen(parenPart, 0);
+            if (parenEnd < 0)
+                return false;
+
+            // Parse (streamExpr, deltaVar [, aggregateVar])
+            var argsText = parenPart.Substring(1, parenEnd - 1);
+            var argParts = SplitByComma(argsText);
+            if (argParts.Count < 2)
+                return false;
+
+            var streamExprText = argParts[0].Trim();
+            var deltaVarName = argParts[1].Trim();
+            var aggregateVarName = argParts.Count >= 3 ? argParts[2].Trim() : "";
+
+            var streamExpr = ParseExpression(streamExprText, sourceLine);
+
+            // Parse body { ... }
+            var afterParen = parenPart.Substring(parenEnd + 1).TrimStart();
+            var body = new BlockNode2();
+            if (afterParen.StartsWith("{"))
+            {
+                var braceEnd = FindMatchingBrace(afterParen, 0);
+                if (braceEnd >= 0)
+                    ParseBlockStatements(afterParen.Substring(1, braceEnd - 1), body, sourceLine);
+            }
+
+            result = new StreamWaitByDeltaLoop2
+            {
+                SourceLine = sourceLine,
+                Stream = streamExpr,
+                WaitType = waitType,
+                DeltaVarName = deltaVarName,
+                AggregateVarName = aggregateVarName,
+                Body = body
+            };
+            return true;
+        }
+
         private bool TryParseAssignment(string text, int sourceLine, out StatementNode2? result)
         {
             result = null;
 
+            // Check for compound assignment: +=
+            var plusEqIdx = FindOperatorOutsideStrings(text, "+=");
+            if (plusEqIdx > 0)
+            {
+                var compoundLhs = text.Substring(0, plusEqIdx).Trim();
+                if (!compoundLhs.StartsWith("var ", StringComparison.OrdinalIgnoreCase) && IsValidLValue(compoundLhs))
+                {
+                    var compoundRhs = text.Substring(plusEqIdx + 2).Trim();
+                    result = new CompoundAssignmentStatement2
+                    {
+                        SourceLine = sourceLine,
+                        Target = ParseExpression(compoundLhs, sourceLine),
+                        Value = ParseExpression(compoundRhs, sourceLine),
+                        Operator = "+"
+                    };
+                    return true;
+                }
+            }
+
+            // Try `:=` first, then plain `=`
             var assignIdx = text.IndexOf(":=", StringComparison.Ordinal);
+            var assignLen = 2;
+
+            if (assignIdx <= 0)
+            {
+                assignIdx = FindPlainAssignment(text);
+                assignLen = 1;
+            }
+
             if (assignIdx <= 0)
                 return false;
 
@@ -680,7 +806,7 @@ namespace Magic.Kernel2.Compilation2
             if (!IsValidLValue(lhs))
                 return false;
 
-            var rhs = text.Substring(assignIdx + 2).Trim();
+            var rhs = text.Substring(assignIdx + assignLen).Trim();
             var target = ParseExpression(lhs, sourceLine);
             var value = ParseExpression(rhs, sourceLine);
 
@@ -708,6 +834,25 @@ namespace Magic.Kernel2.Compilation2
                     Arguments = new List<ExpressionNode2> { operand }
                 };
                 return true;
+            }
+
+            // streamwait funcName(args) — pipeline result to function via streamwait opcode
+            if (text.StartsWith("streamwait ", StringComparison.OrdinalIgnoreCase))
+            {
+                var callText = text.Substring("streamwait".Length).TrimStart();
+                var swParenIdx = FindFirstParenOutsideStrings(callText);
+                if (swParenIdx > 0)
+                {
+                    var funcName = callText.Substring(0, swParenIdx).Trim();
+                    var swArgs = ParseArgumentList(callText.Substring(swParenIdx), sourceLine);
+                    result = new StreamWaitCallStatement2
+                    {
+                        SourceLine = sourceLine,
+                        FunctionName = funcName,
+                        Arguments = swArgs
+                    };
+                    return true;
+                }
             }
 
             // Identifier followed by '(' — function/procedure call
@@ -793,6 +938,25 @@ namespace Magic.Kernel2.Compilation2
                     return new MemorySlotExpression2 { SourceLine = sourceLine, SlotIndex = slotIdx };
             }
 
+            // Symbolic variable: :time, :now etc.
+            if (t.Length >= 2 && t[0] == ':')
+            {
+                var symName = t.Substring(1).Trim();
+                if (!string.IsNullOrEmpty(symName) && IsSimpleIdentifier(symName))
+                    return new SymbolicExpression2 { SourceLine = sourceLine, Name = symName };
+            }
+
+            // Object literal: { key: val, ... }
+            if (t.StartsWith("{") && t.EndsWith("}"))
+            {
+                var braceEnd = FindMatchingBrace(t, 0);
+                if (braceEnd == t.Length - 1)
+                {
+                    var objLit = ParseObjectLiteral(t.Substring(1, t.Length - 2), sourceLine);
+                    if (objLit != null) return objLit;
+                }
+            }
+
             // Await expression: await expr
             if (t.StartsWith("await ", StringComparison.OrdinalIgnoreCase))
             {
@@ -800,33 +964,91 @@ namespace Magic.Kernel2.Compilation2
                 return new AwaitExpression2 { SourceLine = sourceLine, Operand = operand };
             }
 
-            // Generic type: name<TypeArg>
+            // Generic type: name<TypeArg> — but NOT member access expressions containing <>
+            // Only match if there's no dot before the < and no dots in typeArgs that suggest member access
             if (t.Contains('<') && t.EndsWith(">"))
             {
                 var ltIdx = t.IndexOf('<');
                 var typeName = t.Substring(0, ltIdx).Trim();
                 var typeArg = t.Substring(ltIdx + 1, t.Length - ltIdx - 2).Trim();
-                if (IsValidIdentifier(typeName))
+                if (IsSimpleIdentifier(typeName) && !typeName.Contains('.'))
                     return new GenericTypeExpression2 { SourceLine = sourceLine, TypeName = typeName, TypeArg = typeArg };
             }
 
-            // Member access + call chain: parse left-to-right
-            // Find the outermost member access or call
+            // Lambda expression: param => body_expr (check BEFORE member access to avoid misparse of "_ => _.Foo")
+            // Must be checked before FindOutermostDot, otherwise "_ => _.Foo" splits at the dot in "_.Foo".
+            {
+                var earlyArrowIdx = FindArrowOutsideParens(t);
+                if (earlyArrowIdx > 0)
+                {
+                    var earlyParam = t.Substring(0, earlyArrowIdx).Trim();
+                    var earlyBody = t.Substring(earlyArrowIdx + 2).Trim();
+                    if (IsSimpleIdentifier(earlyParam) && !string.IsNullOrEmpty(earlyBody))
+                    {
+                        var earlyBodyExpr = ParseExpression(earlyBody, sourceLine);
+                        var earlyBlock = new BlockNode2
+                        {
+                            Statements = new System.Collections.Generic.List<StatementNode2>
+                            {
+                                new ExpressionStatement2 { Expression = earlyBodyExpr, SourceLine = sourceLine }
+                            }
+                        };
+                        return new LambdaExpression2
+                        {
+                            SourceLine = sourceLine,
+                            Parameters = new System.Collections.Generic.List<string> { earlyParam },
+                            Body = earlyBlock
+                        };
+                    }
+                }
+            }
+
+            // Member access + call chain: parse left-to-right.
+            // Find the outermost dot (handles data!.id by treating '!' as part of left side).
             var dotIdx = FindOutermostDot(t);
             if (dotIdx > 0)
             {
                 var leftPart = t.Substring(0, dotIdx).Trim();
                 var rightPart = t.Substring(dotIdx + 1).Trim();
 
-                var leftExpr = ParseExpression(leftPart, sourceLine);
+                // Handle null-assertion suffix: data! → NullAssertExpression2
+                ExpressionNode2 leftExpr;
+                if (leftPart.EndsWith("!") && leftPart.Length > 1)
+                {
+                    var baseExpr = ParseExpression(leftPart.Substring(0, leftPart.Length - 1).Trim(), sourceLine);
+                    leftExpr = new NullAssertExpression2 { SourceLine = sourceLine, Operand = baseExpr };
+                }
+                else
+                {
+                    leftExpr = ParseExpression(leftPart, sourceLine);
+                }
 
-                // Right part might be a call: Method(args)
+                // Right part might be a call: Method(args)  OR  Path.To.Method(args)
                 var rParenIdx = FindFirstParenOutsideStrings(rightPart);
                 if (rParenIdx > 0)
                 {
-                    var methodName = rightPart.Substring(0, rParenIdx).Trim();
+                    var methodChain = rightPart.Substring(0, rParenIdx).Trim();
                     var argsText = rightPart.Substring(rParenIdx);
                     var args = ParseArgumentList(argsText, sourceLine);
+
+                    // If methodChain contains dots, build intermediate member-access nodes.
+                    // E.g. for "Message<>.find": receiver = MemberAccess(leftExpr, "Message<>"), method = "find"
+                    ExpressionNode2 receiverExpr = leftExpr;
+                    var actualMethodName = methodChain;
+                    if (methodChain.Contains('.'))
+                    {
+                        var segments = SplitSimpleMemberChain(methodChain);
+                        actualMethodName = segments[segments.Count - 1];
+                        for (var si = 0; si < segments.Count - 1; si++)
+                        {
+                            receiverExpr = new MemberAccessExpression2
+                            {
+                                SourceLine = sourceLine,
+                                Object = receiverExpr,
+                                MemberName = segments[si]
+                            };
+                        }
+                    }
 
                     return new CallExpression2
                     {
@@ -834,8 +1056,8 @@ namespace Magic.Kernel2.Compilation2
                         Callee = new MemberAccessExpression2
                         {
                             SourceLine = sourceLine,
-                            Object = leftExpr,
-                            MemberName = methodName
+                            Object = receiverExpr,
+                            MemberName = actualMethodName
                         },
                         Arguments = args,
                         IsObjectCall = true
@@ -851,7 +1073,7 @@ namespace Magic.Kernel2.Compilation2
             }
 
             // Binary operators: +, -, *, /, ==, !=, <, >, <=, >=, &&, ||
-            foreach (var op in new[] { "||", "&&", "==", "!=", "<=", ">=", "<", ">", "+", "-", "*", "/" })
+            foreach (var op in new[] { "||", "&&", "==", "!=", "<=", ">=", "+", "-", "*", "/" })
             {
                 var opIdx = FindOperatorOutsideStrings(t, op);
                 if (opIdx > 0)
@@ -866,8 +1088,20 @@ namespace Magic.Kernel2.Compilation2
                 }
             }
 
+            // Postfix null-assertion: expr!  (standalone, no dot after)
+            if (t.EndsWith("!") && t.Length > 1)
+            {
+                var inner2 = t.Substring(0, t.Length - 1).Trim();
+                if (!string.IsNullOrEmpty(inner2))
+                    return new NullAssertExpression2
+                    {
+                        SourceLine = sourceLine,
+                        Operand = ParseExpression(inner2, sourceLine)
+                    };
+            }
+
             // Unary NOT: !expr
-            if (t.StartsWith("!"))
+            if (t.StartsWith("!") && t.Length > 1)
                 return new UnaryExpression2
                 {
                     SourceLine = sourceLine,
@@ -880,7 +1114,7 @@ namespace Magic.Kernel2.Compilation2
             if (fnParenIdx > 0)
             {
                 var callee = t.Substring(0, fnParenIdx).Trim();
-                if (IsValidIdentifier(callee))
+                if (IsValidCallTarget(callee))
                 {
                     var args = ParseArgumentList(t.Substring(fnParenIdx), sourceLine);
                     return new CallExpression2
@@ -900,8 +1134,70 @@ namespace Magic.Kernel2.Compilation2
                     return ParseExpression(t.Substring(1, t.Length - 2), sourceLine);
             }
 
+            // Lambda expression: param => body_expr
+            // Matches patterns like: _ => _.Member = value
+            var arrowIdx = FindArrowOutsideParens(t);
+            if (arrowIdx > 0)
+            {
+                var paramName = t.Substring(0, arrowIdx).Trim();
+                var bodyText = t.Substring(arrowIdx + 2).Trim();
+                if (IsSimpleIdentifier(paramName) && !string.IsNullOrEmpty(bodyText))
+                {
+                    // Parse body as an expression
+                    var bodyExpr = ParseExpression(bodyText, sourceLine);
+                    // Wrap in a block with a single expression statement
+                    var body = new BlockNode2
+                    {
+                        Statements = new System.Collections.Generic.List<StatementNode2>
+                        {
+                            new ExpressionStatement2 { Expression = bodyExpr, SourceLine = sourceLine }
+                        }
+                    };
+                    return new LambdaExpression2
+                    {
+                        SourceLine = sourceLine,
+                        Parameters = new System.Collections.Generic.List<string> { paramName },
+                        Body = body
+                    };
+                }
+            }
+
             // Identifier or qualified name
             return new VariableExpression2 { SourceLine = sourceLine, Name = t };
+        }
+
+        /// <summary>Parse an object literal body: "key1: val1, key2: val2".</summary>
+        private ObjectLiteralExpression2? ParseObjectLiteral(string body, int sourceLine)
+        {
+            if (string.IsNullOrWhiteSpace(body))
+                return new ObjectLiteralExpression2 { SourceLine = sourceLine };
+
+            var parts = SplitByComma(body);
+            var props = new List<(string Key, ExpressionNode2 Value)>();
+            foreach (var part in parts)
+            {
+                var p = part.Trim();
+                if (string.IsNullOrEmpty(p)) continue;
+
+                // Each part: "key: value" or just "key" (shorthand = variable with same name)
+                var colonIdx = p.IndexOf(':');
+                if (colonIdx <= 0)
+                {
+                    // Shorthand: { foo } → foo: foo
+                    var key = p.TrimEnd(';').Trim();
+                    if (!string.IsNullOrEmpty(key))
+                        props.Add((key, new VariableExpression2 { SourceLine = sourceLine, Name = key }));
+                    continue;
+                }
+
+                var propKey = p.Substring(0, colonIdx).Trim();
+                var propVal = p.Substring(colonIdx + 1).Trim().TrimEnd(';').Trim();
+                if (string.IsNullOrEmpty(propKey)) return null;
+
+                props.Add((propKey, ParseExpression(propVal, sourceLine)));
+            }
+
+            return new ObjectLiteralExpression2 { SourceLine = sourceLine, Properties = props };
         }
 
         private List<ExpressionNode2> ParseArgumentList(string argsText, int sourceLine)
@@ -974,6 +1270,18 @@ namespace Magic.Kernel2.Compilation2
             return true;
         }
 
+        /// <summary>Simple identifier: letters, digits, underscore only (no dots/colons).</summary>
+        private static bool IsSimpleIdentifier(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return false;
+            if (!char.IsLetter(s[0]) && s[0] != '_')
+                return false;
+            foreach (var c in s)
+                if (!char.IsLetterOrDigit(c) && c != '_')
+                    return false;
+            return true;
+        }
+
         private static bool IsValidLValue(string s)
         {
             // An LValue can be: identifier, member access (a.b), or indexed (a[b])
@@ -988,6 +1296,36 @@ namespace Magic.Kernel2.Compilation2
             if (string.IsNullOrEmpty(s)) return false;
             if (s.StartsWith("\"")) return false;
             return true;
+        }
+
+        /// <summary>
+        /// Find the index of a plain '=' that is not part of ':=', '==', '!=', '&lt;=', '&gt;=' or '+='.
+        /// Returns -1 if not found.
+        /// </summary>
+        private static int FindPlainAssignment(string text)
+        {
+            var depth = 0;
+            var inString = false;
+            for (var i = 0; i < text.Length; i++)
+            {
+                var c = text[i];
+                if (c == '"' && (i == 0 || text[i - 1] != '\\'))
+                    inString = !inString;
+                if (inString) continue;
+
+                if (c == '(' || c == '[' || c == '{') depth++;
+                else if (c == ')' || c == ']' || c == '}') depth--;
+                else if (c == '=' && depth == 0)
+                {
+                    // Skip if part of :=, ==, !=, <=, >=, +=, -=
+                    if (i > 0 && (text[i - 1] == ':' || text[i - 1] == '!' || text[i - 1] == '<' || text[i - 1] == '>' || text[i - 1] == '+' || text[i - 1] == '-'))
+                        continue;
+                    if (i + 1 < text.Length && text[i + 1] == '=')
+                        continue;
+                    return i;
+                }
+            }
+            return -1;
         }
 
         private static int FindMatchingParen(string text, int openPos)
@@ -1040,6 +1378,34 @@ namespace Magic.Kernel2.Compilation2
             return -1;
         }
 
+        /// <summary>
+        /// Split a simple member chain like "Message&lt;&gt;.find" or "a.b.c" into ["Message&lt;&gt;", "find"] or ["a","b","c"].
+        /// Handles segments that contain &lt;&gt; (no nesting inside segments is expected here).
+        /// </summary>
+        private static List<string> SplitSimpleMemberChain(string chain)
+        {
+            var result = new List<string>();
+            var start = 0;
+            var depth = 0; // track < > nesting
+            for (var i = 0; i < chain.Length; i++)
+            {
+                var c = chain[i];
+                if (c == '<') depth++;
+                else if (c == '>') depth--;
+                else if (c == '.' && depth == 0)
+                {
+                    var seg = chain.Substring(start, i - start).Trim();
+                    if (!string.IsNullOrEmpty(seg))
+                        result.Add(seg);
+                    start = i + 1;
+                }
+            }
+            var last = chain.Substring(start).Trim();
+            if (!string.IsNullOrEmpty(last))
+                result.Add(last);
+            return result;
+        }
+
         private static int FindOutermostDot(string text)
         {
             // Find a dot NOT inside parens/brackets/strings
@@ -1075,6 +1441,31 @@ namespace Magic.Kernel2.Compilation2
                 else if (c == ')' || c == ']' || c == '}') depth--;
                 else if (depth == 0 && text.Substring(i, op.Length) == op)
                     return i;
+            }
+            return -1;
+        }
+
+        /// <summary>Find the index of '=>' outside parentheses, brackets, braces, and strings.</summary>
+        private static int FindArrowOutsideParens(string text)
+        {
+            if (text.Length < 3) return -1;
+            var depth = 0;
+            var inString = false;
+            for (var i = 0; i <= text.Length - 2; i++)
+            {
+                var c = text[i];
+                if (c == '"' && (i == 0 || text[i - 1] != '\\'))
+                    inString = !inString;
+                if (inString) continue;
+
+                if (c == '(' || c == '[' || c == '{') depth++;
+                else if (c == ')' || c == ']' || c == '}') depth--;
+                else if (depth == 0 && c == '=' && i + 1 < text.Length && text[i + 1] == '>')
+                {
+                    // Make sure it's not '==' or other operator
+                    if (i == 0 || (text[i - 1] != '<' && text[i - 1] != '>' && text[i - 1] != '!' && text[i - 1] != '='))
+                        return i;
+                }
             }
             return -1;
         }

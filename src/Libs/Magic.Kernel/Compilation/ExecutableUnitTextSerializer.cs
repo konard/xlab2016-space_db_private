@@ -402,11 +402,14 @@ namespace Magic.Kernel.Compilation
                 return po.Kind switch
                 {
                     "Type" => "push " + (po.Value as string ?? ""),
+                    "Identifier" => "push " + (po.Value as string ?? ""),
                     "Class" => "push class: \"" + EscapeString(po.Value as string ?? "") + "\"",
                     "IntLiteral" => "push " + (po.Value is long l ? l.ToString() : po.Value?.ToString() ?? "0"),
                     "StringLiteral" => "push string: \"" + EscapeString(po.Value as string ?? "") + "\"",
                     "AddressLiteral" => "push address: \"" + EscapeString(po.Value as string ?? "") + "\"",
                     "LambdaArg" => "push lambda: arg" + (po.Value is int i ? i.ToString() : "0"),
+                    "Memory" => "push [" + (po.Value is long ml ? ml.ToString() : po.Value?.ToString() ?? "0") + "]",
+                    "Global" => "push global: [" + (po.Value is long gl ? gl.ToString() : po.Value?.ToString() ?? "0") + "]",
                     _ => "push [0]"
                 };
             }

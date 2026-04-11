@@ -100,4 +100,31 @@ namespace Magic.Kernel2.Compilation2.Ast2
     {
         public int SlotIndex { get; set; }
     }
+
+    /// <summary>
+    /// Object literal expression: { key1: val1, key2: val2 }.
+    /// Compiles to: push "{}"; pop [slot]; call opjson for each property.
+    /// </summary>
+    public sealed class ObjectLiteralExpression2 : ExpressionNode2
+    {
+        public List<(string Key, ExpressionNode2 Value)> Properties { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Symbolic variable expression: :time, :now etc.
+    /// Compiles to: push string: ":name"; push 1; call get
+    /// </summary>
+    public sealed class SymbolicExpression2 : ExpressionNode2
+    {
+        public string Name { get; set; } = "";
+    }
+
+    /// <summary>
+    /// Postfix null-assertion/unwrap operator: expr! — used for anonymous type member access (data!.id).
+    /// In V1 semantics this is transparent (identity) — the value is used directly.
+    /// </summary>
+    public sealed class NullAssertExpression2 : ExpressionNode2
+    {
+        public ExpressionNode2 Operand { get; set; } = null!;
+    }
 }
